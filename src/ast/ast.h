@@ -1582,34 +1582,9 @@ public:
     }
 
     reslimit& limit() { return m_limit; }
-    // bool canceled() { return !limit().inc(); }
+    bool canceled() { return !limit().inc(); }
     bool inc() { return limit().inc(); }
-    bool canceled() { return timeout() || !limit().inc(); }
-
-    long start_time;
-    bool start = false;
-    unsigned time_out = 0;
-
-    void start_timer(unsigned to) {
-        start = true;
-        time_out = to;
-        struct timespec st;
-        clock_gettime(CLOCK_REALTIME, &st);
-        start_time = st.tv_sec * 1000 + st.tv_nsec / 1000000;
-    }
-    void end_timer() {
-        start = false;
-    }
-    bool timeout() {
-        if (!start) {
-            return false;
-        } else {
-            struct timespec curr_time;
-            clock_gettime(CLOCK_REALTIME, &curr_time);
-            long end_time = curr_time.tv_sec * 1000 + curr_time.tv_nsec / 1000000;
-            return (end_time - start_time) > time_out;
-        }
-    }
+    // bool canceled() { return timeout() || !limit().inc(); }
 
     void register_plugin(symbol const & s, decl_plugin * plugin);
 

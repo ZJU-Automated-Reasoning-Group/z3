@@ -600,16 +600,16 @@ extern "C" {
         timeout              = to_solver(s)->m_params.get_uint("timeout", timeout);
         timeout              = sp.timeout() != UINT_MAX ? sp.timeout() : timeout;
         unsigned rlimit      = to_solver(s)->m_params.get_uint("rlimit", mk_c(c)->get_rlimit());
-        bool     use_ctrl_c  = to_solver(s)->m_params.get_bool("ctrl_c", true);
-        cancel_eh<reslimit> eh(mk_c(c)->m().limit());
-        to_solver(s)->set_eh(&eh);
+        bool     use_ctrl_c  = to_solver(s)->m_params.get_bool("ctrl_c", false);
+        reslimit& limit_obj = mk_c(c)->m().limit();
+        cancel_eh<reslimit> eh(limit_obj);
         api::context::set_interruptable si(*(mk_c(c)), eh);
         lbool result = l_undef;
         {
             scoped_ctrl_c ctrlc(eh, false, use_ctrl_c);
             // scoped_timer timer(timeout, &eh);
-            scoped_rlimit _rlimit(mk_c(c)->m().limit(), rlimit);
-            mk_c(c)->m().start_timer(timeout);
+            scoped_rlimit _rlimit(limit_obj, rlimit);
+            limit_obj.start_timer(timeout);
             try {
                 if (to_solver(s)->m_pp) to_solver(s)->m_pp->check(num_assumptions, _assumptions); 
                 result = to_solver_ref(s)->check_sat(num_assumptions, _assumptions);
@@ -620,16 +620,16 @@ extern "C" {
                 if (mk_c(c)->m().inc()) {
                     mk_c(c)->handle_exception(ex);
                 }
-                mk_c(c)->m().end_timer();
+                limit_obj.end_timer();
                 return Z3_L_UNDEF;
             }
             catch (...) {
                 to_solver_ref(s)->set_reason_unknown(eh);
                 to_solver(s)->set_eh(nullptr);
-                mk_c(c)->m().end_timer();
+                limit_obj.end_timer();
                 return Z3_L_UNDEF;
             }
-            mk_c(c)->m().end_timer();
+            limit_obj.end_timer();
         }
         to_solver(s)->set_eh(nullptr);
         if (result == l_undef) {
