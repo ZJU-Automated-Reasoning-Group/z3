@@ -14,6 +14,7 @@ def init_version():
 def init_project_def():
     init_version()
     add_lib('util', [], includes2install = ['z3_version.h'])
+    add_lib('cadical', []) 
     add_lib('polynomial', ['util'], 'math/polynomial')
     add_lib('interval', ['util'], 'math/interval')
     add_lib('dd', ['util', 'interval'], 'math/dd')
@@ -28,7 +29,7 @@ def init_project_def():
     add_lib('parser_util', ['ast'], 'parsers/util')
     add_lib('euf', ['ast'], 'ast/euf')
     add_lib('grobner', ['ast', 'dd', 'simplex'], 'math/grobner')    
-    add_lib('sat', ['params', 'util', 'dd', 'grobner'])    
+    add_lib('sat', ['params', 'util', 'cadical', 'dd', 'grobner'])    
     add_lib('nlsat', ['polynomial', 'sat'])
     add_lib('lp', ['util', 'nlsat', 'grobner', 'interval', 'smt_params'], 'math/lp')
     add_lib('rewriter', ['ast', 'polynomial', 'automata', 'params'], 'ast/rewriter')

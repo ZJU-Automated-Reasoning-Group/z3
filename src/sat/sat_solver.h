@@ -18,6 +18,7 @@ Revision History:
 --*/
 #pragma once
 
+#include "cadical/cadical.h"
 #include <cmath>
 #include "util/var_queue.h"
 #include "util/params.h"
@@ -93,6 +94,96 @@ namespace sat {
         struct abort_solver {};
     protected:
         enum search_state { s_sat, s_unsat };
+
+        class cadical_terminator : public CaDiCaL::Terminator {
+          private:
+            solver &z3_solver;
+          public:
+            cadical_terminator(solver &s) : z3_solver(s) {}
+            bool terminate () override {
+              return z3_solver.should_cancel();
+            }
+        };
+
+        class cadical_solver {
+          private:
+            CaDiCaL::Solver *sat_solver;
+            cadical_terminator *terminator;
+
+          public:
+            cadical_solver(solver &s) {
+              sat_solver = new CaDiCaL::Solver;
+              terminator = new cadical_terminator(s);
+              sat_solver->connect_terminator(terminator);
+            }
+            ~cadical_solver() {
+              delete sat_solver;
+              delete terminator;
+            }
+            void add(int l) {
+              sat_solver->add(l);
+            }
+            void assume(int l) {
+              sat_solver->assume(l);
+            }
+            int val(int v) const {
+              return sat_solver->val(v);
+            }
+            int solve() {
+              return sat_solver->solve();
+            }
+        };
+
+        /*
+        class lingeling_solver {
+          private:
+            LGL *sat_solver;
+          public:
+            lingeling_solver() {
+              sat_solver = lglinit();
+            }
+            ~lingeling_solver() {
+              lglrelease(sat_solver);
+            }
+            void add(int l) {
+              lgladd(sat_solver, l);
+            }
+            void assume(int l) {
+              lglassume(sat_solver, l);
+            }
+            int val(int v) const {
+              return lglderef(sat_solver, v);
+            }
+            int solve() {
+              return lglsat(sat_solver);
+            }
+        };
+        class kissat_solver {
+          private:
+            kissat *sat_solver;
+          public:
+            kissat_solver() {
+              sat_solver = kissat_init();
+            }
+            ~kissat_solver() {
+              kissat_release(sat_solver);
+            }
+            void add(int l) {
+              kissat_add(sat_solver, l);
+            }
+            void assume(int l) {
+              NOT_IMPLEMENTED_YET();
+            }
+            int val(int v) const {
+              return kissat_value(sat_solver, v);
+            }
+            int solve() {
+              return kissat_solve(sat_solver);
+            }
+        };
+        */
+
+        cadical_solver ext_solver;
 
         bool                    m_checkpoint_enabled;
         config                  m_config;

@@ -164,6 +164,13 @@ namespace sat {
 
         bool               m_force_cleanup;
 
+        // rainoftime {
+        bool               m_enable_probing;
+        bool               m_enable_simplifier;
+        bool               m_enable_restart;
+        unsigned           m_cdcl_engine;
+        // }
+
         // backtracking
         unsigned           m_backtrack_scopes;
         unsigned           m_backtrack_init_conflicts;

@@ -263,6 +263,14 @@ namespace sat {
         sat_simplifier_params ssp(_p);
         m_elim_vars = ssp.elim_vars();
 
+
+        // rainoftime {
+        m_enable_probing  = p.enable_probing();
+        m_enable_simplifier = p.enable_simplifier();
+        m_enable_restart    = p.enable_restart();
+        m_cdcl_engine = p.cdcl_engine();
+        // }
+
     }
 
     void config::collect_param_descrs(param_descrs & r) {

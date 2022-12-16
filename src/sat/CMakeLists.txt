@@ -37,6 +37,7 @@ z3_add_component(sat
     sat_watched.cpp
     sat_xor_finder.cpp
   COMPONENT_DEPENDENCIES
+    cadical
     util
     dd
     grobner

@@ -71,6 +71,7 @@ namespace sat {
         m_trail_avg(),
         m_params(p),
         m_par_id(0),
+		ext_solver(*this),
         m_par_syncing_clauses(false) {
         init_reason_unknown();
         updt_params(p);
@@ -411,6 +412,14 @@ namespace sat {
     }
 
     clause * solver::mk_clause_core(unsigned num_lits, literal * lits, sat::status st) {
+        // [Lin] Cadical
+        for (unsigned i = 0; i < num_lits; ++i) {
+          int l = lits[i].sign() ? -lits[i].var() : lits[i].var();
+          ext_solver.add(l);
+        }
+        ext_solver.add(0);
+
+
         bool redundant = st.is_redundant();
         TRACE("sat", tout << "mk_clause: "  << mk_lits_pp(num_lits, lits) << (redundant?" learned":" aux") << "\n";);
         bool logged = false;
@@ -1227,6 +1236,31 @@ namespace sat {
         m_stats.m_units = init_trail_size();
         IF_VERBOSE(2, verbose_stream() << "(sat.solver)\n";);
         SASSERT(at_base_lvl());
+
+        if (m_config.m_cdcl_engine == 1 ) {
+           // try {
+           // [Lin] Cadical
+           for (size_t i = 0; i < num_lits; ++i) {
+             int l = lits[i].sign() ? -lits[i].var() : lits[i].var();
+             ext_solver.assume(l);
+           }
+           for (literal lit : m_user_scope_literals) {
+             int nl = lit.sign() ? lit.var() : -lit.var(); // [Lin] it is ~lit, assumption flag
+             ext_solver.assume(nl);
+           }
+
+           int sat_solver_res = ext_solver.solve();
+           switch(sat_solver_res){
+             case 10:
+               return l_true;
+             case 20:
+               return l_false;
+             default:
+               SASSERT(sat_solver_res == 0);
+               return l_undef;
+           }
+           // }
+        }
 
         if (m_config.m_ddfw_search) {
             m_cleaner(true);

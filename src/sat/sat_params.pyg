@@ -22,6 +22,12 @@ def_module_params('sat',
                           ('variable_decay', UINT, 110, 'multiplier (divided by 100) for the VSIDS activity increment'),
                           ('inprocess.max', UINT, UINT_MAX, 'maximal number of inprocessing passes'),
                           ('inprocess.out', SYMBOL, '', 'file to dump result of the first inprocessing step and exit'),
+                          # rainoftime {
+                          ('enable_probing', BOOL, True, 'enable probing for simplification'),
+                          ('enable_simplifier', BOOL, True, 'enable resolution, bce in simplify_problem'), 
+                          ('enable_restart', BOOL, True, 'enable restarting during CDCL search'),
+                          ('cdcl_engine', UINT, 0, '0: z3; 1: cadical; others: tbd'),
+                          # }
                           ('branching.heuristic', SYMBOL, 'vsids', 'branching heuristic vsids, chb'),
                           ('branching.anti_exploration', BOOL, False, 'apply anti-exploration heuristic for branch selection'),
                           ('random_freq', DOUBLE, 0.01, 'frequency of random case splits'),
