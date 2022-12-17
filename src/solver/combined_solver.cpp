@@ -66,6 +66,9 @@ private:
     inc_unknown_behavior m_inc_unknown_behavior;
     unsigned             m_inc_timeout;
     
+    // rainoftime
+    bool                 m_solver1_only;
+
     void switch_inc_mode() {
         m_inc_mode = true;
     }
@@ -227,6 +230,12 @@ public:
                 if (r != l_undef || !use_solver1_when_undef() || !get_manager().inc()) {
                     return r;
                 }
+            }
+            else if (m_inc_timeout == 0) {
+            	// rainoftime: a trick for "always calling the non-incremental solver (solver 1)"
+            	IF_VERBOSE(PS_VB_LVL, verbose_stream() << "(combined-solver \"using solver 1 (the timeout for solver 2 is 0)\")\n";);
+                m_use_solver1_results = true;
+                return m_solver1->check_sat_core(num_assumptions, assumptions);
             }
             else {
                 IF_VERBOSE(PS_VB_LVL, verbose_stream() << "(combined-solver \"using solver 2 (with timeout)\")\n";);            
