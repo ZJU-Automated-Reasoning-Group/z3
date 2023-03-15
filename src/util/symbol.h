@@ -65,17 +65,7 @@ public:
     static symbol dummy() { return m_dummy; }
     static const symbol null;
     symbol & operator=(char const * d);
-    friend bool operator==(symbol const & s1, symbol const & s2) {
-        if (s1.m_data && s2.m_data) {
-            if (s1.m_data == s2.m_data)
-                return true;
-            if (s1.m_data == m_dummy.m_data || s2.m_data == m_dummy.m_data)
-                return false;
-            return strcmp(s1.m_data, s2.m_data) == 0;
-        } else {
-            return s1.m_data == s2.m_data;
-        }
-    }
+    friend bool operator==(symbol const & s1, symbol const & s2) { return s1.m_data == s2.m_data; }
     friend bool operator!=(symbol const & s1, symbol const & s2) { return !operator==(s1, s2); }
     bool is_numerical() const { return GET_TAG(m_data) == 1; }
     bool is_null() const { return m_data == nullptr; }
