@@ -31,8 +31,13 @@ void dependent_expr_state::freeze(func_decl* f) {
 }
 
 void dependent_expr_state::freeze(expr* term) {
-    if (is_app(term))
+    if (is_app(term) && to_app(term)->get_num_args() == 0)
         freeze(to_app(term)->get_decl());
+    else {
+        ast_mark visited;
+        freeze_terms(term, false, visited);
+    }
+    
 }
 
 /**
@@ -84,6 +89,23 @@ void dependent_expr_state::freeze_recfun() {
 }
 
 /**
+* Freeze all functions used in lambda defined declarations
+*/
+void dependent_expr_state::freeze_lambda() {
+    auto& m = m_frozen_trail.get_manager();
+    unsigned sz = m.lambda_defs().size();
+    if (m_num_lambdas >= sz)
+        return;
+
+    ast_mark visited;
+    for (auto const& [f, body] : m.lambda_defs()) 
+        freeze_terms(body, false, visited);
+    m_trail.push(value_trail(m_num_lambdas));
+    m_num_lambdas = sz;
+}
+
+
+/**
 * The current qhead is to be updated to qtail. 
 * Before this update, freeze all functions appearing in formulas.
 */
@@ -100,8 +122,9 @@ void dependent_expr_state::freeze_suffix() {
     if (m_suffix_frozen)
         return;
     m_suffix_frozen = true;
-    auto& m = m_frozen_trail.get_manager();
     freeze_recfun();
+    freeze_lambda();
+    auto& m = m_frozen_trail.get_manager();
     ast_mark visited;
     ptr_vector<expr> es;
     for (unsigned i = qhead(); i < qtail(); ++i) {

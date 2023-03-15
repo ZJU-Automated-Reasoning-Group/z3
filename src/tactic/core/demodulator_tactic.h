@@ -100,4 +100,5 @@ inline tactic * mk_demodulator_tactic(ast_manager& m, params_ref const& p = para
 
 /*
   ADD_TACTIC("demodulator", "extracts equalities from quantifiers and applies them to simplify.", "mk_demodulator_tactic(m, p)")
+  ADD_SIMPLIFIER("demodulator", "extracts equalities from quantifiers and applies them to simplify.", "alloc(demodulator_simplifier, m, p, s)")
 */

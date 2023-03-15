@@ -811,6 +811,7 @@ namespace smt {
         init_bits(e, bits);                                                                
     }
 
+    MK_UNARY(internalize_neg,       mk_neg);
     MK_UNARY(internalize_not,       mk_not);
     MK_UNARY(internalize_redand,    mk_redand);
     MK_UNARY(internalize_redor,     mk_redor);
@@ -895,6 +896,7 @@ namespace smt {
         }
         switch (term->get_decl_kind()) {
         case OP_BV_NUM:         internalize_num(term); return true;
+        case OP_BNEG:           internalize_neg(term); return true;
         case OP_BADD:           internalize_add(term); return true;
         case OP_BSUB:           internalize_sub(term); return true;
         case OP_BMUL:           internalize_mul(term); return true;
@@ -1379,7 +1381,7 @@ namespace smt {
     }
 
     void theory_bv::relevant_eh(app * n) {
-        TRACE("arith", tout << "relevant: #" << n->get_id() << " " << ctx.e_internalized(n) << ": " << mk_pp(n, m) << "\n";);
+        TRACE("arith", tout << "relevant: #" << n->get_id() << " " << ctx.e_internalized(n) << ": " << mk_bounded_pp(n, m) << "\n";);
         TRACE("bv", tout << "relevant: #" << n->get_id() << " " << ctx.e_internalized(n) << ": " << mk_pp(n, m) << "\n";);
         if (m.is_bool(n)) {
             bool_var v = ctx.get_bool_var(n);

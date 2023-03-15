@@ -1510,7 +1510,7 @@ namespace opt {
 
 
         for (unsigned v : vs) {
-            def v_def = project(v, false);
+            def v_def = project(v, compute_def);
             if (compute_def)
                 eliminate(v, v_def);
         }

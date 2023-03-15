@@ -26,7 +26,7 @@ Notes:
 #include "solver/solver.h"
 #include "solver/tactic2solver.h"
 #include "solver/parallel_params.hpp"
-#include "solver/parallel_tactic.h"
+#include "solver/parallel_tactical.h"
 #include "tactic/tactical.h"
 #include "tactic/aig/aig_tactic.h"
 #include "tactic/core/propagate_values_tactic.h"
@@ -463,6 +463,10 @@ public:
         }
         return fmls;
     }
+
+    expr* congruence_next(expr* e) override { return e; }
+    expr* congruence_root(expr* e) override { return e; }
+
     
     lbool get_consequences_core(expr_ref_vector const& assumptions, expr_ref_vector const& vars, expr_ref_vector& conseq) override {
         init_preprocess();
