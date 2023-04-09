@@ -44,6 +44,7 @@ Revision History:
 #include "sat/tactic/goal2sat.h"
 #include "sat/tactic/sat2goal.h"
 #include "cmd_context/extra_cmds/proof_cmds.h"
+#include "solver/simplifier_solver.h"
 
 
 extern "C" {
@@ -232,12 +233,48 @@ extern "C" {
         Z3_CATCH_RETURN(nullptr);
     }
 
+    /**
+    * attach a simplifier to solver.
+    * This is legal when the solver is fresh, does not already have assertions (and scopes).
+    * To allow recycling the argument solver, we create a fresh copy of it and pass it to 
+    * mk_simplifier_solver.
+    */
+    Z3_solver Z3_API Z3_solver_add_simplifier(Z3_context c, Z3_solver solver, Z3_simplifier simplifier) {
+        Z3_TRY;
+        LOG_Z3_solver_add_simplifier(c, solver, simplifier); 
+        solver_ref s_fresh;
+        if (to_solver(solver)->m_solver) {
+            s_fresh = to_solver_ref(solver)->translate(mk_c(c)->m(), to_solver(solver)->m_params);
+        }
+        else {
+            // create the solver, but hijack it for internal uses.
+            init_solver(c, solver);
+            s_fresh = to_solver(solver)->m_solver;
+            to_solver(solver)->m_solver = nullptr;
+        }
+        if (!s_fresh) {
+            SET_ERROR_CODE(Z3_INVALID_ARG, "unexpected empty solver state");
+            RETURN_Z3(nullptr);
+        }
+        if (s_fresh->get_num_assertions() > 0) {
+            SET_ERROR_CODE(Z3_INVALID_ARG, "adding a simplifier to a solver with assertions is not allowed.");
+            RETURN_Z3(nullptr);
+        }        
+        auto simp = to_simplifier_ref(simplifier);
+        auto* simplifier_solver = mk_simplifier_solver(s_fresh.get(), simp);
+        Z3_solver_ref* result = alloc(Z3_solver_ref, *mk_c(c), simplifier_solver);
+        mk_c(c)->save_object(result);
+        RETURN_Z3(of_solver(result));
+        Z3_CATCH_RETURN(nullptr);
+    }
+
+
     Z3_solver Z3_API Z3_solver_translate(Z3_context c, Z3_solver s, Z3_context target) {
         Z3_TRY;
         LOG_Z3_solver_translate(c, s, target);
         RESET_ERROR_CODE();
         params_ref const& p = to_solver(s)->m_params; 
-        Z3_solver_ref * sr = alloc(Z3_solver_ref, *mk_c(target), nullptr);
+        Z3_solver_ref * sr = alloc(Z3_solver_ref, *mk_c(target), (solver_factory *)nullptr);
         init_solver(c, s);
         sr->m_solver = to_solver(s)->m_solver->translate(mk_c(target)->m(), p);
         mk_c(target)->save_object(sr);
@@ -277,8 +314,11 @@ extern "C" {
         bool initialized = to_solver(s)->m_solver.get() != nullptr;
         if (!initialized)
             init_solver(c, s);
-        for (expr* e : ctx->tracked_assertions()) 
-            to_solver(s)->assert_expr(e);
+        for (auto const& [asr, an] : ctx->tracked_assertions())
+            if (an)
+                to_solver(s)->assert_expr(asr, an);
+            else
+                to_solver(s)->assert_expr(asr);
         ctx->reset_tracked_assertions();
         to_solver_ref(s)->set_model_converter(ctx->get_model_converter());
         auto* ctx_s = ctx->get_solver();
@@ -600,15 +640,16 @@ extern "C" {
         timeout              = to_solver(s)->m_params.get_uint("timeout", timeout);
         timeout              = sp.timeout() != UINT_MAX ? sp.timeout() : timeout;
         unsigned rlimit      = to_solver(s)->m_params.get_uint("rlimit", mk_c(c)->get_rlimit());
-        bool     use_ctrl_c  = to_solver(s)->m_params.get_bool("ctrl_c", true);
-        cancel_eh<reslimit> eh(mk_c(c)->m().limit());
-        to_solver(s)->set_eh(&eh);
+        bool     use_ctrl_c  = to_solver(s)->m_params.get_bool("ctrl_c", false);
+        reslimit& limit_obj = mk_c(c)->m().limit();
+        cancel_eh<reslimit> eh(limit_obj);
         api::context::set_interruptable si(*(mk_c(c)), eh);
         lbool result = l_undef;
         {
             scoped_ctrl_c ctrlc(eh, false, use_ctrl_c);
-            scoped_timer timer(timeout, &eh);
-            scoped_rlimit _rlimit(mk_c(c)->m().limit(), rlimit);
+            // scoped_timer timer(timeout, &eh);
+            scoped_rlimit _rlimit(limit_obj, rlimit);
+            limit_obj.start_timer(timeout);
             try {
                 if (to_solver(s)->m_pp) to_solver(s)->m_pp->check(num_assumptions, _assumptions); 
                 result = to_solver_ref(s)->check_sat(num_assumptions, _assumptions);
@@ -619,13 +660,16 @@ extern "C" {
                 if (mk_c(c)->m().inc()) {
                     mk_c(c)->handle_exception(ex);
                 }
+                limit_obj.end_timer();
                 return Z3_L_UNDEF;
             }
             catch (...) {
                 to_solver_ref(s)->set_reason_unknown(eh);
                 to_solver(s)->set_eh(nullptr);
+                limit_obj.end_timer();
                 return Z3_L_UNDEF;
             }
+            limit_obj.end_timer();
         }
         to_solver(s)->set_eh(nullptr);
         if (result == l_undef) {
@@ -900,6 +944,26 @@ extern "C" {
             to_ast_vector_ref(vs).push_back(a);
         }
         RETURN_Z3(of_ast_vector(v));
+        Z3_CATCH_RETURN(nullptr);
+    }
+
+    Z3_ast Z3_API Z3_solver_congruence_root(Z3_context c, Z3_solver s, Z3_ast a) {
+        Z3_TRY;
+        LOG_Z3_solver_congruence_root(c, s, a);
+        RESET_ERROR_CODE();
+        init_solver(c, s);
+        expr* r = to_solver_ref(s)->congruence_root(to_expr(a));
+        RETURN_Z3(of_expr(r));
+        Z3_CATCH_RETURN(nullptr);
+    }
+
+    Z3_ast Z3_API Z3_solver_congruence_next(Z3_context c, Z3_solver s, Z3_ast a) {
+        Z3_TRY;
+        LOG_Z3_solver_congruence_next(c, s, a);
+        RESET_ERROR_CODE();
+        init_solver(c, s);
+        expr* sib = to_solver_ref(s)->congruence_next(to_expr(a));
+        RETURN_Z3(of_expr(sib));
         Z3_CATCH_RETURN(nullptr);
     }
 

@@ -32,6 +32,7 @@ Author:
 #include "util/trail.h"
 #include "util/statistics.h"
 #include "util/params.h"
+#include "util/z3_exception.h"
 #include "ast/converters/model_converter.h"
 #include "ast/simplifiers/dependent_expr.h"
 #include "ast/simplifiers/model_reconstruction_trail.h"
@@ -43,14 +44,14 @@ Author:
 class dependent_expr_state {
     unsigned m_qhead = 0;
     bool     m_suffix_frozen = false;
-    unsigned m_num_recfun = 0;
+    unsigned m_num_recfun = 0, m_num_lambdas = 0;
     lbool    m_has_quantifiers = l_undef;
     ast_mark m_frozen;
     func_decl_ref_vector m_frozen_trail;
     void freeze_prefix();
     void freeze_recfun();
+    void freeze_lambda();
     void freeze_terms(expr* term, bool only_as_array, ast_mark& visited);
-    void freeze(expr* term);
     void freeze(func_decl* f);
     struct thaw : public trail {
         unsigned sz;
@@ -80,7 +81,7 @@ public:
         m_trail.push(value_trail(m_qhead)); 
         m_trail.push(thaw(*this));
     }
-    void pop(unsigned n) { m_trail.pop_scope(n);  }
+    void pop(unsigned n) { m_trail.pop_scope(n); }
     
     void advance_qhead() { freeze_prefix(); m_suffix_frozen = false; m_has_quantifiers = l_undef;  m_qhead = qtail(); }
     unsigned num_exprs();
@@ -88,13 +89,26 @@ public:
     /**
     * Freeze internal functions
     */
-    bool frozen(func_decl* f) const { return m_frozen.is_marked(f); }
+    void freeze(expr* term);
+    void freeze(expr_ref_vector const& terms) { for (expr* t : terms) freeze(t); }
+    bool frozen(func_decl* f) const { return m_frozen.is_marked(f); }    
     bool frozen(expr* f) const { return is_app(f) && m_frozen.is_marked(to_app(f)->get_decl()); }
     void freeze_suffix();
 
     virtual std::ostream& display(std::ostream& out) const { return out; }
 
     bool has_quantifiers();
+};
+
+class default_dependent_expr_state : public dependent_expr_state {
+public:
+    default_dependent_expr_state(ast_manager& m): dependent_expr_state(m) {}
+    virtual unsigned qtail() const { return 0; }
+    virtual dependent_expr const& operator[](unsigned i) { throw default_exception("unexpected access"); }
+    virtual void update(unsigned i, dependent_expr const& j) { throw default_exception("unexpected update"); }
+    virtual void add(dependent_expr const& j) { throw default_exception("unexpected addition"); }
+    virtual bool inconsistent() { return false; }
+    virtual model_reconstruction_trail& model_trail() { throw default_exception("unexpected access to model reconstruction"); }
 };
 
 inline std::ostream& operator<<(std::ostream& out, dependent_expr_state& st) {
@@ -149,3 +163,5 @@ public:
     ast_manager& get_manager() { return m; }
     dependent_expr_state& get_fmls() { return m_fmls; }
 };
+
+typedef std::function<dependent_expr_simplifier*(ast_manager&, const params_ref&, dependent_expr_state& s)> simplifier_factory;

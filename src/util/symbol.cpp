@@ -54,7 +54,7 @@ public:
 
     char const * get_str(char const * d) {
         const char * result;
-        lock_guard _lock(*lock);
+        // lock_guard _lock(*lock);
         str_hashtable::entry * e;
         if (m_table.insert_if_not_there_core(d, e)) {
             // new entry
@@ -78,7 +78,7 @@ public:
 }
 
 #ifdef SINGLE_THREAD
-static std::optional<internal_symbol_table> g_symbol_tables;
+__thread internal_symbol_table* g_symbol_tables = nullptr;
 
 void initialize_symbols() {
     if (!g_symbol_tables) {

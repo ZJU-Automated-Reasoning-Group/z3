@@ -3,7 +3,7 @@ Copyright (c) 2014 Microsoft Corporation
 
 Module Name:
 
-    card2bv_tactic.cpp
+    card2bv_tactic.h
 
 Author:
 
@@ -69,4 +69,5 @@ inline tactic* mk_card2bv_tactic(ast_manager& m, params_ref const& p = params_re
 
 /*
   ADD_TACTIC("card2bv", "convert pseudo-boolean constraints to bit-vectors.", "mk_card2bv_tactic(m, p)")
+  ADD_SIMPLIFIER("card2bv", "convert pseudo-boolean constraints to bit-vectors.", "alloc(card2bv, m, p, s)")
 */

@@ -65,6 +65,8 @@ namespace sat {
             m_phase = PS_RANDOM;
         else if (s == symbol("frozen"))
             m_phase = PS_FROZEN;
+        else if (s == symbol("local_search"))
+            m_phase = PS_LOCAL_SEARCH;
         else
             throw sat_param_exception("invalid phase selection strategy: always_false, always_true, basic_caching, caching, random");
 
@@ -198,7 +200,6 @@ namespace sat {
         m_drat_check_sat  = p.drat_check_sat();
         m_drat_file       = p.drat_file();
         m_smt_proof_check = p.smt_proof_check();
-        m_smt_proof_check_rup = p.smt_proof_check_rup();
         m_drat_disable = p.drat_disable();
         m_drat            =
             !m_drat_disable && p.threads() == 1 &&

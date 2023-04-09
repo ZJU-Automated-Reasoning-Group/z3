@@ -63,6 +63,7 @@ namespace z3 {
     class solver;
     class goal;
     class tactic;
+    class simplifier;
     class probe;
     class model;
     class func_interp;
@@ -359,11 +360,19 @@ namespace z3 {
         func_decl function(char const * name, sort const & d1, sort const & d2, sort const & d3, sort const & d4, sort const & d5, sort const & range);
 
         func_decl recfun(symbol const & name, unsigned arity, sort const * domain, sort const & range);
+        func_decl recfun(symbol const & name, const sort_vector& domain, sort const & range);
+        func_decl recfun(char const * name, sort_vector const& domain, sort const & range);
         func_decl recfun(char const * name, unsigned arity, sort const * domain, sort const & range);
         func_decl recfun(char const * name, sort const & domain, sort const & range);
         func_decl recfun(char const * name, sort const & d1, sort const & d2, sort const & range);
 
-        void      recdef(func_decl, expr_vector const& args, expr const& body);
+        /**
+         * \brief add function definition body to declaration decl. decl needs to be declared using context::<recfun>.
+         * @param decl
+         * @param args
+         * @param body
+         */
+        void      recdef(func_decl decl, expr_vector const& args, expr const& body);
         func_decl user_propagate_function(symbol const& name, sort_vector const& domain, sort const& range);
 
         /**
@@ -400,11 +409,11 @@ namespace z3 {
         expr int_val(uint64_t n);
         expr int_val(char const * n);
 
-        expr real_val(int n, int d);
         expr real_val(int n);
         expr real_val(unsigned n);
         expr real_val(int64_t n);
         expr real_val(uint64_t n);
+        expr real_val(int64_t n, int64_t d);
         expr real_val(char const * n);
 
         expr bv_val(int n, unsigned sz);
@@ -2695,6 +2704,7 @@ namespace z3 {
         solver(context & c, char const * logic):object(c) { init(Z3_mk_solver_for_logic(c, c.str_symbol(logic))); check_error(); }
         solver(context & c, solver const& src, translate): object(c) { Z3_solver s = Z3_solver_translate(src.ctx(), src, c); check_error(); init(s); }
         solver(solver const & s):object(s) { init(s.m_solver); }
+        solver(solver const& s, simplifier const& simp);
         ~solver() { Z3_solver_dec_ref(ctx(), m_solver); }
         operator Z3_solver() const { return m_solver; }
         solver & operator=(solver const & s) {
@@ -2710,6 +2720,16 @@ namespace z3 {
         void set(char const * k, double v) { params p(ctx()); p.set(k, v); set(p); }
         void set(char const * k, symbol const & v) { params p(ctx()); p.set(k, v); set(p); }
         void set(char const * k, char const* v) { params p(ctx()); p.set(k, v); set(p); }
+        /**
+           \brief Create a backtracking point.
+
+           The solver contains a stack of assertions.
+
+           \sa Z3_solver_get_num_scopes
+           \sa Z3_solver_pop
+
+           def_API('Z3_solver_push', VOID, (_in(CONTEXT), _in(SOLVER)))
+        */
         void push() { Z3_solver_push(ctx(), m_solver); check_error(); }
         void pop(unsigned n = 1) { Z3_solver_pop(ctx(), m_solver, n); check_error(); }
         void reset() { Z3_solver_reset(ctx(), m_solver); check_error(); }
@@ -3063,6 +3083,47 @@ namespace z3 {
         Z3_tactic r = Z3_tactic_par_and_then(t1.ctx(), t1, t2);
         t1.check_error();
         return tactic(t1.ctx(), r);
+    }
+
+    class simplifier : public object {
+        Z3_simplifier m_simplifier;
+        void init(Z3_simplifier s) {
+            m_simplifier = s;
+            Z3_simplifier_inc_ref(ctx(), s);
+        }
+    public:
+        simplifier(context & c, char const * name):object(c) { Z3_simplifier r = Z3_mk_simplifier(c, name); check_error(); init(r); }
+        simplifier(context & c, Z3_simplifier s):object(c) { init(s); }
+        simplifier(simplifier const & s):object(s) { init(s.m_simplifier); }
+        ~simplifier() { Z3_simplifier_dec_ref(ctx(), m_simplifier); }
+        operator Z3_simplifier() const { return m_simplifier; }
+        simplifier & operator=(simplifier const & s) {
+            Z3_simplifier_inc_ref(s.ctx(), s.m_simplifier);
+            Z3_simplifier_dec_ref(ctx(), m_simplifier);
+            object::operator=(s);
+            m_simplifier = s.m_simplifier;
+            return *this;
+        }
+        std::string help() const { char const * r = Z3_simplifier_get_help(ctx(), m_simplifier); check_error();  return r; }
+        friend simplifier operator&(simplifier const & t1, simplifier const & t2);
+        friend simplifier with(simplifier const & t, params const & p);
+        param_descrs get_param_descrs() { return param_descrs(ctx(), Z3_simplifier_get_param_descrs(ctx(), m_simplifier)); }
+    };
+
+    inline solver::solver(solver const& s, simplifier const& simp):object(s) { init(Z3_solver_add_simplifier(s.ctx(), s, simp)); }
+
+
+    inline simplifier operator&(simplifier const & t1, simplifier const & t2) {
+        check_context(t1, t2);
+        Z3_simplifier r = Z3_simplifier_and_then(t1.ctx(), t1, t2);
+        t1.check_error();
+        return simplifier(t1.ctx(), r);
+    }
+
+    inline simplifier with(simplifier const & t, params const & p) {
+        Z3_simplifier r = Z3_simplifier_using_params(t.ctx(), t, p);
+        t.check_error();
+        return simplifier(t.ctx(), r);
     }
 
     class probe : public object {
@@ -3561,6 +3622,19 @@ namespace z3 {
 
     }
 
+    inline func_decl context::recfun(symbol const & name, sort_vector const& domain, sort const & range) {
+        check_context(domain, range);
+        array<Z3_sort> domain1(domain);
+        Z3_func_decl f = Z3_mk_rec_func_decl(m_ctx, name, domain1.size(), domain1.ptr(), range);
+        check_error();
+        return func_decl(*this, f);
+    }
+
+    inline func_decl context::recfun(char const * name, sort_vector const& domain, sort const & range) {
+        return recfun(str_symbol(name), domain, range);
+
+    }
+
     inline func_decl context::recfun(char const * name, unsigned arity, sort const * domain, sort const & range) {
         return recfun(str_symbol(name), arity, domain, range);
     }
@@ -3630,7 +3704,7 @@ namespace z3 {
     inline expr context::int_val(uint64_t n) { Z3_ast r = Z3_mk_unsigned_int64(m_ctx, n, int_sort()); check_error(); return expr(*this, r); }
     inline expr context::int_val(char const * n) { Z3_ast r = Z3_mk_numeral(m_ctx, n, int_sort()); check_error(); return expr(*this, r); }
 
-    inline expr context::real_val(int n, int d) { Z3_ast r = Z3_mk_real(m_ctx, n, d); check_error(); return expr(*this, r); }
+    inline expr context::real_val(int64_t n, int64_t d) { Z3_ast r = Z3_mk_real_int64(m_ctx, n, d); check_error(); return expr(*this, r); }
     inline expr context::real_val(int n) { Z3_ast r = Z3_mk_int(m_ctx, n, real_sort()); check_error(); return expr(*this, r); }
     inline expr context::real_val(unsigned n) { Z3_ast r = Z3_mk_unsigned_int(m_ctx, n, real_sort()); check_error(); return expr(*this, r); }
     inline expr context::real_val(int64_t n) { Z3_ast r = Z3_mk_int64(m_ctx, n, real_sort()); check_error(); return expr(*this, r); }

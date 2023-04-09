@@ -250,10 +250,11 @@ namespace sat {
         unsigned                m_search_next_toggle;
         unsigned                m_phase_counter; 
         unsigned                m_best_phase_size;
+        backoff                 m_local_search_lim;
         unsigned                m_rephase_lim;
         unsigned                m_rephase_inc;
-        unsigned                m_reorder_lim;
-        unsigned                m_reorder_inc;
+        backoff                 m_rephase;
+        backoff                 m_reorder;
         var_queue               m_case_split_queue;
         unsigned                m_qhead;
         unsigned                m_scope_lvl;
@@ -328,6 +329,7 @@ namespace sat {
         friend class lut_finder;
         friend class npn3_finder;
         friend class proof_trim;
+        friend struct backoff;
     public:
         solver(params_ref const & p, reslimit& l);
         ~solver() override;
@@ -423,6 +425,7 @@ namespace sat {
                 s.m_checkpoint_enabled = true;
             }
         };
+
         unsigned select_watch_lit(clause const & cls, unsigned starting_at) const;
         unsigned select_learned_watch_lit(clause const & cls) const;
         bool simplify_clause(unsigned & num_lits, literal * lits) const;
@@ -680,7 +683,9 @@ namespace sat {
         lbool do_ddfw_search(unsigned num_lits, literal const* lits);
         lbool do_prob_search(unsigned num_lits, literal const* lits);
         lbool invoke_local_search(unsigned num_lits, literal const* lits);
+        void  bounded_local_search();
         lbool do_unit_walk();
+        struct scoped_ls; 
 
         // -----------------------
         //

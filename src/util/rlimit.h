@@ -59,6 +59,15 @@ public:
 
     void inc_cancel();
     void dec_cancel();
+
+private:
+    long start_time;
+    unsigned time_out;
+
+public:
+    void start_timer(unsigned to);
+    void end_timer();
+    bool timeout();
 };
 
 class scoped_rlimit {

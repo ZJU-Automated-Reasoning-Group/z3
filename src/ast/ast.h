@@ -1582,8 +1582,9 @@ public:
     }
 
     reslimit& limit() { return m_limit; }
-    // bool canceled() { return !limit().inc(); }
+    bool canceled() { return !limit().inc(); }
     bool inc() { return limit().inc(); }
+    // bool canceled() { return timeout() || !limit().inc(); }
 
     void register_plugin(symbol const & s, decl_plugin * plugin);
 
@@ -1631,6 +1632,7 @@ public:
     void add_lambda_def(func_decl* f, quantifier* q);
     quantifier* is_lambda_def(func_decl* f);
     quantifier* is_lambda_def(app* e) { return is_lambda_def(e->get_decl()); }
+    obj_map<func_decl, quantifier*> const& lambda_defs() const { return m_lambda_defs; }
 
     symbol const& lambda_def_qid() const { return m_lambda_def; }
 
@@ -2334,7 +2336,7 @@ public:
     proof * mk_th_assumption_add(proof* pr, expr* e);
     proof * mk_th_lemma_add(proof* pr, expr* e);
     proof * mk_redundant_del(expr* e);
-    proof * mk_clause_trail(unsigned n, proof* const* ps);
+    proof * mk_clause_trail(unsigned n, expr* const* ps);
 
     proof * mk_def_axiom(expr * ax);
     proof * mk_unit_resolution(unsigned num_proofs, proof * const * proofs);

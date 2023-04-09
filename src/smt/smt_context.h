@@ -62,6 +62,8 @@ namespace smt {
 
     class model_generator;
 
+    struct cancel_exception {};
+
     class context {
         friend class model_generator;
         friend class lookahead;
@@ -1617,6 +1619,8 @@ namespace smt {
         bool set_logic(symbol const& logic) { return m_setup.set_logic(logic); }
 
         void register_plugin(theory * th);
+
+        void add_asserted(expr* e);
 
         void assert_expr(expr * e);
 

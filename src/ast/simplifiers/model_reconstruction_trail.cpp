@@ -13,6 +13,7 @@ Author:
 
 
 #include "ast/for_each_expr.h"
+#include "ast/ast_ll_pp.h"
 #include "ast/rewriter/macro_replacer.h"
 #include "ast/simplifiers/model_reconstruction_trail.h"
 #include "ast/simplifiers/dependent_expr_state.h"
@@ -21,15 +22,31 @@ Author:
 
 // accumulate a set of dependent exprs, updating m_trail to exclude loose 
 // substitutions that use variables from the dependent expressions.
-// TODO: add filters to skip sections of the trail that do not touch the current free variables.
 
-void model_reconstruction_trail::replay(unsigned qhead, dependent_expr_state& st) {
+void model_reconstruction_trail::replay(unsigned qhead, expr_ref_vector& assumptions, dependent_expr_state& st) {
+
+    if (m_trail.empty())
+        return;
+
     ast_mark free_vars;
+    m_intersects_with_model = false;
     scoped_ptr<expr_replacer> rp = mk_default_expr_replacer(m, false);
-    for (unsigned i = qhead; i < st.qtail(); ++i) 
+    for (unsigned i = qhead; i < st.qtail(); ++i)        
         add_vars(st[i], free_vars);
+    for (expr* a : assumptions)
+        add_vars(a, free_vars);
+
+    TRACE("simplifier",
+        tout << "intersects " << m_intersects_with_model << "\n";
+        for (unsigned i = qhead; i < st.qtail(); ++i)
+            tout << mk_bounded_pp(st[i].fml(), m) << "\n";
+    );
+
+    if (!m_intersects_with_model)
+        return;
 
     for (auto& t : m_trail) {
+        TRACE("simplifier", tout << " active " << t->m_active << " hide " << t->is_hide() << " intersects " << t->intersects(free_vars) << "\n");
         if (!t->m_active)
             continue;
 
@@ -54,16 +71,18 @@ void model_reconstruction_trail::replay(unsigned qhead, dependent_expr_state& st
         
         if (t->is_def()) {
             macro_replacer mrp(m);
-            app_ref head(m);            
-            func_decl* d = t->m_decl;
-            ptr_buffer<expr> args;
-            for (unsigned i = 0; i < d->get_arity(); ++i)
-                args.push_back(m.mk_var(i, d->get_domain(i)));
-            head = m.mk_app(d, args);
-            mrp.insert(head, t->m_def, t->m_dep);
-            dependent_expr de(m, t->m_def, nullptr, t->m_dep);
-            add_vars(de, free_vars);
-
+            for (auto const& [d, def, dep] : t->m_defs) {
+                app_ref head(m);
+                ptr_buffer<expr> args;
+                for (unsigned i = 0; i < d->get_arity(); ++i)
+                    args.push_back(m.mk_var(i, d->get_domain(i)));
+                head = m.mk_app(d, args);
+                mrp.insert(head, def, dep);
+                TRACE("simplifier", tout << mk_pp(d, m) << " " << mk_pp(def,m) << " " << "\n");
+                dependent_expr de(m, def, nullptr, dep);
+                add_vars(de, free_vars);
+            }
+            
             for (unsigned i = qhead; i < st.qtail(); ++i) {
                 auto [f, p, dep1] = st[i]();
                 expr_ref g(m);
@@ -72,6 +91,15 @@ void model_reconstruction_trail::replay(unsigned qhead, dependent_expr_state& st
                 CTRACE("simplifier", f != g, tout << "updated " << mk_pp(g, m) << "\n");
                 if (f != g)
                     st.update(i, dependent_expr(m, g, nullptr, dep2));
+            }
+            for (unsigned i = 0; i < assumptions.size(); ++i) {
+                expr* a = assumptions.get(i);
+                expr_ref g(m);
+                expr_dependency_ref dep(m);
+                mrp(a, nullptr, g, dep);
+                if (a != g)
+                    assumptions[i] = g;
+                // ignore dep.
             }
             continue;
         }
@@ -103,7 +131,15 @@ void model_reconstruction_trail::replay(unsigned qhead, dependent_expr_state& st
             CTRACE("simplifier", f != g, tout << "updated " << mk_pp(g, m) << "\n");
             add_vars(d, free_vars);
             st.update(i, d);
-        }    
+        }
+        
+        for (unsigned i = 0; i < assumptions.size(); ++i) {
+            expr* a = assumptions.get(i);
+            auto [g, dep2] = rp->replace_with_dep(a);
+            if (a != g)
+                assumptions[i] = g;
+            // ignore dep.
+        }        
     }
 }
 
@@ -112,35 +148,31 @@ void model_reconstruction_trail::replay(unsigned qhead, dependent_expr_state& st
  */
 model_converter_ref model_reconstruction_trail::get_model_converter() {
     generic_model_converter_ref mc = alloc(generic_model_converter, m, "dependent-expr-model");
-    unsigned i = 0;
-    append(*mc, i);
+    append(*mc);
     return model_converter_ref(mc.get());
 }
 
 /**
 * Append model conversions starting at index i
 */
-void model_reconstruction_trail::append(generic_model_converter& mc, unsigned& i) {
-    for (; i < m_trail.size(); ++i) {
-        auto* t = m_trail[i];
+void model_reconstruction_trail::append(generic_model_converter& mc) {
+    for (auto* t : m_trail) {
         if (!t->m_active)
             continue;
         else if (t->is_hide())
             mc.hide(t->m_decl);
         else if (t->is_def())
-            mc.add(t->m_decl, t->m_def);
+            for (auto const& [f, def, dep] : t->m_defs)
+                mc.add(f, def);
         else {
             for (auto const& [v, def] : t->m_subst->sub())
                 mc.add(v, def);
         }
     }
+    TRACE("simplifier", display(tout); mc.display(tout));
 }
 
 
-void model_reconstruction_trail::append(generic_model_converter& mc) {
-    m_trail_stack.push(value_trail(m_trail_index));
-    append(mc, m_trail_index);
-}
 
 std::ostream& model_reconstruction_trail::display(std::ostream& out) const {
     for (auto* t : m_trail) {
@@ -148,8 +180,10 @@ std::ostream& model_reconstruction_trail::display(std::ostream& out) const {
             continue;
         else if (t->is_hide())
             out << "hide " << t->m_decl->get_name() << "\n";
-        else if (t->is_def())
-            out << t->m_decl->get_name() << " <- " << mk_pp(t->m_def, m) << "\n";
+        else if (t->is_def()) {
+            for (auto const& [f, def, dep] : t->m_defs)
+                out << f->get_name() << " <- " << mk_pp(def, m) << "\n";
+        }            
         else {
             for (auto const& [v, def] : t->m_subst->sub())
                 out << mk_pp(v, m) << " <- " << mk_pp(def, m) << "\n";            

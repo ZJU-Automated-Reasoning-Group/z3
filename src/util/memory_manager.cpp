@@ -55,37 +55,38 @@ out_of_memory_error::out_of_memory_error():z3_error(ERR_MEMOUT) {
 static DECLARE_INIT_MUTEX(g_memory_mux);
 static atomic<bool> g_memory_out_of_memory(false);
 static bool       g_memory_initialized       = false;
-static long long  g_memory_alloc_size        = 0;
-static long long  g_memory_max_size          = 0;
-static long long  g_memory_max_used_size     = 0;
-static long long  g_memory_watermark         = 0;
-static long long  g_memory_alloc_count       = 0;
-static long long  g_memory_max_alloc_count   = 0;
-static bool       g_exit_when_out_of_memory  = false;
-static char const * g_out_of_memory_msg      = "ERROR: out of memory";
+//static long long  g_memory_alloc_size        = 0;
+//static long long  g_memory_max_size          = 0;
+//static long long  g_memory_max_used_size     = 0;
+//static long long  g_memory_watermark         = 0;
+//static long long  g_memory_alloc_count       = 0;
+//static long long  g_memory_max_alloc_count   = 0;
+//static bool       g_exit_when_out_of_memory  = false;
+//static char const * g_out_of_memory_msg      = "ERROR: out of memory";
+static volatile bool g_memory_fully_initialized = false;
 
 void memory::exit_when_out_of_memory(bool flag, char const * msg) {
-    g_exit_when_out_of_memory = flag;
-    if (flag && msg)
-        g_out_of_memory_msg = msg;
+//    g_exit_when_out_of_memory = flag;
+//    if (flag && msg)
+//        g_out_of_memory_msg = msg;
 }
 
 static void throw_out_of_memory() {
     g_memory_out_of_memory = true;
 
-    if (g_exit_when_out_of_memory) {
-        std::cerr << g_out_of_memory_msg << "\n";
-        exit(ERR_MEMOUT);
-    }
-    else {
-        throw out_of_memory_error();
-    }
+//    if (g_exit_when_out_of_memory) {
+//        std::cerr << g_out_of_memory_msg << "\n";
+//        exit(ERR_MEMOUT);
+//    }
+//    else {
+//        throw out_of_memory_error();
+//    }
 }
 
-static void throw_alloc_counts_exceeded() {
-    std::cout << "Maximal allocation counts " << g_memory_max_alloc_count << " have been exceeded\n";
-    exit(ERR_ALLOC_EXCEEDED);
-}
+//static void throw_alloc_counts_exceeded() {
+//    std::cout << "Maximal allocation counts " << g_memory_max_alloc_count << " have been exceeded\n";
+//    exit(ERR_ALLOC_EXCEEDED);
+//}
 
 
 #ifdef PROFILE_MEMORY
@@ -107,8 +108,8 @@ void memory::initialize(size_t max_size) {
     lock_guard lock(init_mux);
 
     // only update the maximum size if max_size != UINT_MAX
-    if (max_size != UINT_MAX)
-        g_memory_max_size = max_size;
+//    if (max_size != UINT_MAX)
+//        g_memory_max_size = max_size;
 
     if (g_memory_initialized)
         return;
@@ -124,25 +125,25 @@ bool memory::is_out_of_memory() {
 
 void memory::set_high_watermark(size_t watermark) {
     // This method is only safe to invoke at initialization time, that is, before the threads are created.
-    g_memory_watermark = watermark;
+//    g_memory_watermark = watermark;
 }
 
 bool memory::above_high_watermark() {
-    if (g_memory_watermark == 0)
+//    if (g_memory_watermark == 0)
         return false;
-    lock_guard lock(*g_memory_mux);
-    return g_memory_watermark < g_memory_alloc_size;
+//    lock_guard lock(*g_memory_mux);
+//    return g_memory_watermark < g_memory_alloc_size;
 }
 
 // The following methods are only safe to invoke at 
 // initialization time, that is, before threads are created.
 
 void memory::set_max_size(size_t max_size) {
-    g_memory_max_size = max_size;
+//    g_memory_max_size = max_size;
 }
 
 void memory::set_max_alloc_count(size_t max_count) {
-    g_memory_max_alloc_count = max_count;
+//    g_memory_max_alloc_count = max_count;
 }
 
 static bool g_finalizing = false;
@@ -165,21 +166,22 @@ void memory::finalize(bool shutdown) {
 
 unsigned long long memory::get_allocation_size() {
     long long r;
-    {
-        lock_guard lock(*g_memory_mux);
-        r = g_memory_alloc_size;
-    }
-    if (r < 0)
+//    {
+//        lock_guard lock(*g_memory_mux);
+//        r = g_memory_alloc_size;
+//    }
+//    if (r < 0)
         r = 0;
     return r;
 }
 
 unsigned long long memory::get_max_used_memory() {
     unsigned long long r;
-    {
-        lock_guard lock(*g_memory_mux);
-        r = g_memory_max_used_size;
-    }
+//    {
+//        lock_guard lock(*g_memory_mux);
+//        r = g_memory_max_used_size;
+//    }
+    r = 0;
     return r;
 }
 
@@ -200,7 +202,7 @@ unsigned long long memory::get_max_memory_size() {
 }
 
 unsigned long long memory::get_allocation_count() {
-    return g_memory_alloc_count;
+    return 0;
 }
 
 
@@ -247,30 +249,30 @@ thread_local long long g_memory_thread_alloc_size    = 0;
 thread_local long long g_memory_thread_alloc_count   = 0;
 
 static void synchronize_counters(bool allocating) {
-#ifdef PROFILE_MEMORY
-    g_synch_counter++;
-#endif
-
-    bool out_of_mem = false;
-    bool counts_exceeded = false;
-    {
-        lock_guard lock(*g_memory_mux);
-        g_memory_alloc_size += g_memory_thread_alloc_size;
-        g_memory_alloc_count += g_memory_thread_alloc_count;
-        if (g_memory_alloc_size > g_memory_max_used_size)
-            g_memory_max_used_size = g_memory_alloc_size;
-        if (g_memory_max_size != 0 && g_memory_alloc_size > g_memory_max_size)
-            out_of_mem = true;
-        if (g_memory_max_alloc_count != 0 && g_memory_alloc_count > g_memory_max_alloc_count)
-            counts_exceeded = true;
-    }
-    g_memory_thread_alloc_size = 0;
-    if (out_of_mem && allocating) {
-        throw_out_of_memory();
-    }
-    if (counts_exceeded && allocating) {
-        throw_alloc_counts_exceeded();
-    }
+//#ifdef PROFILE_MEMORY
+//    g_synch_counter++;
+//#endif
+//
+//    bool out_of_mem = false;
+//    bool counts_exceeded = false;
+//    {
+//        lock_guard lock(*g_memory_mux);
+//        g_memory_alloc_size += g_memory_thread_alloc_size;
+//        g_memory_alloc_count += g_memory_thread_alloc_count;
+//        if (g_memory_alloc_size > g_memory_max_used_size)
+//            g_memory_max_used_size = g_memory_alloc_size;
+//        if (g_memory_max_size != 0 && g_memory_alloc_size > g_memory_max_size)
+//            out_of_mem = true;
+//        if (g_memory_max_alloc_count != 0 && g_memory_alloc_count > g_memory_max_alloc_count)
+//            counts_exceeded = true;
+//    }
+//    g_memory_thread_alloc_size = 0;
+//    if (out_of_mem && allocating) {
+//        throw_out_of_memory();
+//    }
+//    if (counts_exceeded && allocating) {
+//        throw_alloc_counts_exceeded();
+//    }
 }
 
 void memory::deallocate(void * p) {
@@ -402,7 +404,7 @@ void* memory::reallocate(void *p, size_t s) {
         return p;
 #else
     size_t * sz_p  = reinterpret_cast<size_t*>(p) - 1;
-    size_t sz      = *sz_p;
+//    size_t sz      = *sz_p;
     void * real_p  = reinterpret_cast<void*>(sz_p);
     s = s + sizeof(size_t); // we allocate an extra field!
 #endif
