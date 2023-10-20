@@ -62,8 +62,7 @@ void theory_user_propagator::add_expr(expr* term, bool ensure_enode) {
     enode* n = ensure_enode ? this->ensure_enode(e) : ctx.get_enode(e);
     if (is_attached_to_var(n))
         return;
-
-
+    
     theory_var v = mk_var(n);
     m_var2expr.reserve(v + 1);
     m_var2expr[v] = term;
@@ -83,7 +82,7 @@ void theory_user_propagator::add_expr(expr* term, bool ensure_enode) {
     
 }
 
-void theory_user_propagator::propagate_cb(
+bool theory_user_propagator::propagate_cb(
     unsigned num_fixed, expr* const* fixed_ids, 
     unsigned num_eqs, expr* const* eq_lhs, expr* const* eq_rhs, 
     expr* conseq) {
@@ -95,9 +94,10 @@ void theory_user_propagator::propagate_cb(
     if (!ctx.get_manager().is_true(_conseq) && !ctx.get_manager().is_false(_conseq))
         ctx.mark_as_relevant((expr*)_conseq);
 
-    if (ctx.lit_internalized(_conseq) && ctx.get_assignment(ctx.get_literal(_conseq)) == l_true) 
-        return;
-    m_prop.push_back(prop_info(num_fixed, fixed_ids, num_eqs, eq_lhs, eq_rhs, _conseq));    
+    if (ctx.lit_internalized(_conseq) && ctx.get_assignment(ctx.get_literal(_conseq)) == l_true)
+        return false;
+    m_prop.push_back(prop_info(num_fixed, fixed_ids, num_eqs, eq_lhs, eq_rhs, _conseq));
+    return true;
 }
 
 void theory_user_propagator::register_cb(expr* e) {
@@ -107,15 +107,18 @@ void theory_user_propagator::register_cb(expr* e) {
         add_expr(e, true);
 }
 
-void theory_user_propagator::next_split_cb(expr* e, unsigned idx, lbool phase) {
+bool theory_user_propagator::next_split_cb(expr* e, unsigned idx, lbool phase) {
     if (e == nullptr) { // clear
-        m_next_split_expr = nullptr;
-        return;
+        m_next_split_var = null_bool_var;
+        return true;
     }
     ensure_enode(e);
-    m_next_split_expr = e;
-    m_next_split_idx = idx;
+    bool_var b = enode_to_bool(ctx.get_enode(e), idx);
+    if (b == null_bool_var || ctx.get_assignment(b) != l_undef)
+        return false;
+    m_next_split_var = b;
     m_next_split_phase = phase;
+    return true;
 }
 
 theory * theory_user_propagator::mk_fresh(context * new_ctx) {
@@ -142,7 +145,7 @@ final_check_status theory_user_propagator::final_check_eh() {
         return FC_DONE;
     force_push();
     unsigned sz1 = m_prop.size();
-    unsigned sz2 = m_expr2var.size();
+    unsigned sz2 = get_num_vars();
     try {
         m_final_eh(m_user_context, this);
     }
@@ -153,7 +156,7 @@ final_check_status theory_user_propagator::final_check_eh() {
     propagate();
     CTRACE("user_propagate", ctx.inconsistent(), tout << "inconsistent\n");
     // check if it became inconsistent or something new was propagated/registered
-    bool done = (sz1 == m_prop.size()) && (sz2 == m_expr2var.size()) && !ctx.inconsistent();
+    bool done = (sz1 == m_prop.size()) && (sz2 == get_num_vars()) && !ctx.inconsistent();
     return done ? FC_DONE : FC_CONTINUE;
 }
 
@@ -174,18 +177,15 @@ void theory_user_propagator::new_fixed_eh(theory_var v, expr* value, unsigned nu
      }
 }
 
-bool_var theory_user_propagator::enode_to_bool(enode* n, unsigned bit) {
+bool_var theory_user_propagator::enode_to_bool(enode* n, unsigned idx) {
     if (n->is_bool()) {
         // expression is a boolean
-        bool_var new_var = ctx.enode2bool_var(n);
-        if (ctx.get_assignment(new_var) == l_undef)
-            return new_var;
-        return null_bool_var;
+        return ctx.enode2bool_var(n);
     }
     // expression is a bit-vector
     bv_util bv(m);
     auto th_bv = (theory_bv*)ctx.get_theory(bv.get_fid());
-    return th_bv->get_first_unassigned(bit, n);
+    return th_bv->get_bit(idx, n);
 }
 
 void theory_user_propagator::decide(bool_var& var, bool& is_pos) {
@@ -225,7 +225,7 @@ void theory_user_propagator::decide(bool_var& var, bool& is_pos) {
 
     if (v == null_theory_var) {
         // it is not a registered boolean value but it is a bitvector
-        auto registered_bv = ((theory_bv*)th)->get_bv_with_theory(var, get_family_id());
+        auto registered_bv = ((theory_bv *) th)->get_bv_with_theory(var, get_family_id());
         if (!registered_bv.first)
             // there is no registered bv associated with the bit
             return;
@@ -236,47 +236,33 @@ void theory_user_propagator::decide(bool_var& var, bool& is_pos) {
 
     // call the registered callback
     unsigned new_bit = original_bit;
-    lbool phase = is_pos ? l_true : l_false;
-    
-    expr* e = var2expr(v);
-    m_decide_eh(m_user_context, this, &e, &new_bit, &phase);
-    enode* new_enode = ctx.get_enode(e);
 
-    // check if the callback changed something
-    if (original_enode == new_enode && (new_enode->is_bool() || original_bit == new_bit)) {
-        if (phase != l_undef)
-            // it only affected the truth value
-            is_pos = phase == l_true;
+    expr *e = var2expr(v);
+    m_decide_eh(m_user_context, this, e, new_bit, is_pos);
+
+    bool_var new_var;
+    if (!get_case_split(new_var, is_pos) || new_var == var)
+        // The user did not interfere
         return;
-    }
+    var = new_var;
 
-    // get unassigned variable from enode
-    var = enode_to_bool(new_enode, new_bit);
-    
-    if (var == null_bool_var)
-        // selected variable is already assigned
+    // check if the new variable is unassigned
+    if (ctx.get_assignment(var) != l_undef)
         throw default_exception("expression in \"decide\" is already assigned");
-    
-    // in case the callback did not decide on a truth value -> let Z3 decide
-    is_pos = ctx.guess(var, phase);
 }
 
-bool theory_user_propagator::get_case_split(bool_var& var, bool& is_pos){
-    if (!m_next_split_expr)
+bool theory_user_propagator::get_case_split(bool_var& var, bool& is_pos) {
+    if (m_next_split_var == null_bool_var)
         return false;
-    enode* n = ctx.get_enode(m_next_split_expr);
-    
-    var = enode_to_bool(n, m_next_split_idx);
-    
-    if (var == null_bool_var)
-        return false;
-    
+
+    var = m_next_split_var;
     is_pos = ctx.guess(var, m_next_split_phase);
-    m_next_split_expr = nullptr;
+    m_next_split_var = null_bool_var;
+    m_next_split_phase = l_undef;
     return true;
 }
 
-void theory_user_propagator::push_scope_eh() {    
+void theory_user_propagator::push_scope_eh() {
     ++m_num_scopes;
 }
 
@@ -400,7 +386,7 @@ bool theory_user_propagator::internalize_atom(app* atom, bool gate_ctx) {
     return internalize_term(atom);
 }
 
-bool theory_user_propagator::internalize_term(app* term)  { 
+bool theory_user_propagator::internalize_term(app* term) {
     for (auto arg : *term)
         ensure_enode(arg);
     if (term->get_family_id() == get_id() && !ctx.e_internalized(term)) 
@@ -421,9 +407,9 @@ bool theory_user_propagator::internalize_term(app* term)  {
     return true;
 }
 
-void theory_user_propagator::collect_statistics(::statistics & st) const {
+void theory_user_propagator::collect_statistics(::statistics& st) const {
     st.update("user-propagations", m_stats.m_num_propagations);
-    st.update("user-watched",      get_num_vars());
+    st.update("user-watched", get_num_vars());
 }
 
 

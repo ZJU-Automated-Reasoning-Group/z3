@@ -36,8 +36,10 @@ namespace euf {
         }
         m_expr2enode.setx(f->get_id(), n, nullptr);
         push_node(n);
-        for (unsigned i = 0; i < num_args; ++i) 
-            set_cgc_enabled(args[i], true);                             
+        for (unsigned i = 0; i < num_args; ++i) {
+            set_cgc_enabled(args[i], true);      
+            args[i]->get_root()->set_is_shared(l_undef);
+        }                       
         return n;
     }
 
@@ -476,6 +478,7 @@ namespace euf {
             c->m_root = r2;
         std::swap(r1->m_next, r2->m_next);
         r2->inc_class_size(r1->class_size());   
+        r2->set_is_shared(l_undef);
         merge_th_eq(r1, r2);
         reinsert_parents(r1, r2);
         if (j.is_congruence() && (m.is_false(r2->get_expr()) || m.is_true(r2->get_expr())))
@@ -553,6 +556,7 @@ namespace euf {
         enode* r2 = r1->get_root();
         TRACE("euf", tout << "undo-eq old-root: " << bpp(r1) << " current-root " << bpp(r2) << " node: " << bpp(n1) << "\n";);
         r2->dec_class_size(r1->class_size());
+        r2->set_is_shared(l_undef);
         std::swap(r1->m_next, r2->m_next);
         auto begin = r2->begin_parents() + r2_num_parents, end = r2->end_parents();
         for (auto it = begin; it != end; ++it) {

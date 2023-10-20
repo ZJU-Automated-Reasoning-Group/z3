@@ -29,6 +29,7 @@ Revision History:
 #include "ast/ast_ll_pp.h"
 #include "ast/ast_smt_pp.h"
 #include "ast/ast_smt2_pp.h"
+#include "ast/polymorphism_util.h"
 #include "ast/rewriter/th_rewriter.h"
 #include "ast/rewriter/var_subst.h"
 #include "ast/rewriter/expr_safe_replace.h"
@@ -88,6 +89,16 @@ extern "C" {
         Z3_CATCH_RETURN(nullptr);
     }
 
+    Z3_sort Z3_API Z3_mk_type_variable(Z3_context c, Z3_symbol name) {
+        Z3_TRY;
+        LOG_Z3_mk_type_variable(c, name);
+        RESET_ERROR_CODE();
+        sort* ty = mk_c(c)->m().mk_type_var(to_symbol(name));
+        mk_c(c)->save_ast_trail(ty);
+        RETURN_Z3(of_sort(ty));
+        Z3_CATCH_RETURN(nullptr);
+    }
+
     bool Z3_API Z3_is_eq_ast(Z3_context c, Z3_ast s1, Z3_ast s2) {
         RESET_ERROR_CODE();
         return s1 == s2;
@@ -120,10 +131,8 @@ extern "C" {
         RESET_ERROR_CODE();
         // 
         recfun::promise_def def = 
-            mk_c(c)->recfun().get_plugin().mk_def(to_symbol(s),                                      
-                                          domain_size,
-                                          to_sorts(domain),
-                                          to_sort(range));
+            mk_c(c)->recfun().get_plugin().mk_def(
+                to_symbol(s), domain_size, to_sorts(domain), to_sort(range), false);
         func_decl* d = def.get_def()->get_decl();
         mk_c(c)->save_ast_trail(d);
         RETURN_Z3(of_func_decl(d));
@@ -182,7 +191,20 @@ extern "C" {
             arg_list.push_back(to_expr(args[i]));
         }
         func_decl* _d = reinterpret_cast<func_decl*>(d);
-        app* a = mk_c(c)->m().mk_app(_d, num_args, arg_list.data());
+        ast_manager& m = mk_c(c)->m();
+        if (_d->is_polymorphic()) {
+            polymorphism::util u(m);
+            polymorphism::substitution sub(m);
+            ptr_buffer<sort> domain;
+            for (unsigned i = 0; i < num_args; ++i) {
+                if (!sub.match(_d->get_domain(i), arg_list[i]->get_sort())) 
+                    SET_ERROR_CODE(Z3_INVALID_ARG, "failed to match argument of polymorphic function");
+                domain.push_back(arg_list[i]->get_sort());
+            }
+            sort_ref range = sub(_d->get_range());
+            _d = m.instantiate_polymorphic(_d, num_args, domain.data(), range);
+        }
+        app* a = m.mk_app(_d, num_args, arg_list.data());
         mk_c(c)->save_ast_trail(a);
         check_sorts(c, a);
         RETURN_Z3(of_ast(a));
@@ -729,6 +751,9 @@ extern "C" {
         }
         else if (fid == mk_c(c)->get_char_fid() && k == CHAR_SORT) {
             return Z3_CHAR_SORT;
+        }
+        else if (fid == poly_family_id) {
+            return Z3_TYPE_VAR;
         }
         else {
             return Z3_UNKNOWN_SORT;

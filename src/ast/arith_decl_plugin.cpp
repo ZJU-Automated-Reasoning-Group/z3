@@ -365,13 +365,12 @@ inline func_decl * arith_decl_plugin::mk_func_decl(decl_kind k, bool is_real) {
     case OP_MOD:     return m_i_mod_decl;
     case OP_DIV0:    return m_manager->mk_func_decl(symbol("/0"), m_real_decl, m_real_decl, m_real_decl, func_decl_info(m_family_id, OP_DIV0));
     case OP_IDIV0:   return m_manager->mk_func_decl(symbol("div0"), m_int_decl, m_int_decl, m_int_decl, func_decl_info(m_family_id, OP_IDIV0));
-    case OP_REM0:    return m_manager->mk_func_decl(symbol("rem0"), m_int_decl, m_int_decl, m_int_decl, func_decl_info(m_family_id, OP_REM0));
     case OP_MOD0:    return m_manager->mk_func_decl(symbol("mod0"), m_int_decl, m_int_decl, m_int_decl, func_decl_info(m_family_id, OP_MOD0));
     case OP_POWER0:  
         if (is_real) { 
             return m_manager->mk_func_decl(symbol("^0"), m_real_decl, m_real_decl, m_real_decl, func_decl_info(m_family_id, OP_POWER0));
         }
-        return m_manager->mk_func_decl(symbol("^0"), m_int_decl, m_int_decl, m_int_decl, func_decl_info(m_family_id, OP_POWER0));
+        return m_manager->mk_func_decl(symbol("^0"), m_int_decl, m_int_decl, m_real_decl, func_decl_info(m_family_id, OP_POWER0));
     case OP_TO_REAL: return m_to_real_decl;
     case OP_TO_INT:  return m_to_int_decl;
     case OP_IS_INT:  return m_is_int_decl;
@@ -612,7 +611,6 @@ void arith_decl_plugin::get_op_names(svector<builtin_name>& op_names, symbol con
         op_names.push_back(builtin_name("euler", OP_E));
         op_names.push_back(builtin_name("/0",OP_DIV0));
         op_names.push_back(builtin_name("div0",OP_IDIV0));
-        op_names.push_back(builtin_name("rem0",OP_REM0));
         op_names.push_back(builtin_name("mod0",OP_MOD0));
     }
 }
@@ -803,6 +801,29 @@ expr_ref arith_util::mk_add_simplify(unsigned sz, expr* const* args) {
     return result;
 }
 
+bool arith_util::is_considered_partially_interpreted(func_decl* f, unsigned n, expr* const* args, func_decl_ref& f_out) {
+    if (is_decl_of(f, arith_family_id, OP_DIV) && n == 2 && !is_numeral(args[1])) {
+        f_out = mk_div0();
+        return true;
+    }
+    if (is_decl_of(f, arith_family_id, OP_IDIV) && n == 2 && !is_numeral(args[1])) {
+        sort* rs[2] = { mk_int(), mk_int() };
+        f_out = m_manager.mk_func_decl(arith_family_id, OP_IDIV0, 0, nullptr, 2, rs, mk_int());
+        return true;
+    }
+    if (is_decl_of(f, arith_family_id, OP_MOD) && n == 2 && !is_numeral(args[1])) {
+        sort* rs[2] = { mk_int(), mk_int() };
+        f_out = m_manager.mk_func_decl(arith_family_id, OP_MOD0, 0, nullptr, 2, rs, mk_int());
+        return true;
+    }
+    if (is_decl_of(f, arith_family_id, OP_REM) && n == 2 && !is_numeral(args[1])) {
+        sort* rs[2] = { mk_int(), mk_int() };
+        f_out = m_manager.mk_func_decl(arith_family_id, OP_MOD0, 0, nullptr, 2, rs, mk_int());
+        return true;
+    }
+    return false;
+}
+
 bool arith_util::is_considered_uninterpreted(func_decl* f, unsigned n, expr* const* args, func_decl_ref& f_out) {
     rational r;
     if (is_decl_of(f, arith_family_id, OP_DIV) && n == 2 && is_numeral(args[1], r) && r.is_zero()) {
@@ -821,7 +842,7 @@ bool arith_util::is_considered_uninterpreted(func_decl* f, unsigned n, expr* con
     }
     if (is_decl_of(f, arith_family_id, OP_REM) && n == 2 && is_numeral(args[1], r) && r.is_zero()) {
         sort* rs[2] = { mk_int(), mk_int() };
-        f_out = m_manager.mk_func_decl(arith_family_id, OP_REM0, 0, nullptr, 2, rs, mk_int());
+        f_out = m_manager.mk_func_decl(arith_family_id, OP_MOD0, 0, nullptr, 2, rs, mk_int());
         return true;
     }
     if (is_decl_of(f, arith_family_id, OP_POWER) && n == 2 && is_numeral(args[1], r) && r.is_zero() && is_numeral(args[0], r) && r.is_zero()) {
@@ -836,7 +857,7 @@ bool arith_util::is_considered_uninterpreted(func_decl* f, unsigned n, expr* con
 func_decl* arith_util::mk_ipower0() {
     sort* s = mk_int();
     sort* rs[2] = { s, s };
-    return m_manager.mk_func_decl(arith_family_id, OP_POWER0, 0, nullptr, 2, rs, s);
+    return m_manager.mk_func_decl(arith_family_id, OP_POWER0, 0, nullptr, 2, rs, mk_real());
 }
 
 func_decl* arith_util::mk_rpower0() {
@@ -857,7 +878,7 @@ func_decl* arith_util::mk_idiv0() {
 
 func_decl* arith_util::mk_rem0() {
     sort* rs[2] = { mk_int(), mk_int() };
-    return m_manager.mk_func_decl(arith_family_id, OP_REM0, 0, nullptr, 2, rs, mk_int());
+    return m_manager.mk_func_decl(arith_family_id, OP_MOD0, 0, nullptr, 2, rs, mk_int());
 }
 
 func_decl* arith_util::mk_mod0() {
@@ -942,7 +963,6 @@ bool arith_util::is_underspecified(expr* e) const {
         case OP_MOD:
         case OP_DIV0:
         case OP_IDIV0:
-        case OP_REM0:
         case OP_MOD0:
             return true;
         default:

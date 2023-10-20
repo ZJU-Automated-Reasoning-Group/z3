@@ -9,7 +9,7 @@
 #include "math/polynomial/polynomial.h"
 #include "math/polynomial/algebraic_numbers.h"
 #include "util/map.h"
-#include "math/lp/u_set.h"
+#include "util/uint_set.h"
 #include "math/lp/nla_core.h"
 
 
@@ -23,7 +23,7 @@ struct solver::imp {
     reslimit&                 m_limit;  
     params_ref                m_params; 
     u_map<polynomial::var>    m_lp2nl;  // map from lar_solver variables to nlsat::solver variables        
-    lp::u_set                 m_term_set;
+    indexed_uint_set                 m_term_set;
     scoped_ptr<nlsat::solver> m_nlsat;
     scoped_ptr<scoped_anum>   m_zero;
     mutable variable_map_type m_variable_values; // current model        
@@ -55,7 +55,7 @@ struct solver::imp {
         m_zero = nullptr;
         m_nlsat = alloc(nlsat::solver, m_limit, m_params, false);
         m_zero = alloc(scoped_anum, am());
-        m_term_set.clear();
+        m_term_set.reset();
         m_lp2nl.reset();
         vector<nlsat::assumption, false> core;
 
@@ -182,11 +182,11 @@ struct solver::imp {
         m_nlsat = alloc(nlsat::solver, m_limit, m_params, false);
         m_zero = alloc(scoped_anum, am());
         m_lp2nl.reset();
-        m_term_set.clear();
+        m_term_set.reset();
         for (auto const& eq : eqs)
             add_eq(eq);
         for (auto const& [v, w] : m_lp2nl) {
-            auto& ls = m_nla_core.m_lar_solver;
+            auto& ls = m_nla_core.lra;
             if (ls.column_has_lower_bound(v))
                 add_lb(ls.get_lower_bound(v), w);
             if (ls.column_has_upper_bound(v))
@@ -206,14 +206,62 @@ struct solver::imp {
             }
         }
 
+        if (r == l_true)
+            return r;
+        
         IF_VERBOSE(0, verbose_stream() << "check-nra " << r << "\n";
                    m_nlsat->display(verbose_stream());
                    for (auto const& [v, w] : m_lp2nl) {
-                       auto& ls = m_nla_core.m_lar_solver;
+                       auto& ls = m_nla_core.lra;
                        if (ls.column_has_lower_bound(v))
-                           verbose_stream() << w << " >= " << ls.get_lower_bound(v) << "\n";
+                           verbose_stream() << "x" << w << " >= " << ls.get_lower_bound(v) << "\n";
                        if (ls.column_has_upper_bound(v))
-                           verbose_stream() << w << " <= " << ls.get_upper_bound(v) << "\n";
+                           verbose_stream() << "x" << w << " <= " << ls.get_upper_bound(v) << "\n";
+                   });                   
+        
+
+        return r;
+    }
+
+    lbool check_tight(dd::pdd const& eq) {
+        m_zero = nullptr;
+        m_nlsat = alloc(nlsat::solver, m_limit, m_params, false);
+        m_zero = alloc(scoped_anum, am());
+        m_lp2nl.reset();
+        m_term_set.reset();
+        add_eq(eq);
+        for (auto const& [v, w] : m_lp2nl) {
+            auto& ls = m_nla_core.lra;
+            if (ls.column_has_lower_bound(v))
+                add_strict_lb(ls.get_lower_bound(v), w);
+            if (ls.column_has_upper_bound(v))
+                add_strict_ub(ls.get_upper_bound(v), w);
+        }
+
+        lbool r = l_undef;
+        try {
+            r = m_nlsat->check(); 
+        }
+        catch (z3_exception&) {
+            if (m_limit.is_canceled()) {
+                r = l_undef;
+            }
+            else {
+                throw;
+            }
+        }
+
+        if (r == l_true)
+            return r;
+        
+        IF_VERBOSE(0, verbose_stream() << "check-nra tight " << r << "\n";
+                   m_nlsat->display(verbose_stream());
+                   for (auto const& [v, w] : m_lp2nl) {
+                       auto& ls = m_nla_core.lra;
+                       if (ls.column_has_lower_bound(v))
+                           verbose_stream() << "x" << w << " >= " << ls.get_lower_bound(v) << "\n";
+                       if (ls.column_has_upper_bound(v))
+                           verbose_stream() << "x" << w << " <= " << ls.get_upper_bound(v) << "\n";
                    });                   
         
 
@@ -233,6 +281,13 @@ struct solver::imp {
         polynomial::polynomial* ps[1] = { p };               
         nlsat::literal lit = m_nlsat->mk_ineq_literal(nlsat::atom::kind::EQ, 1, ps, is_even);                
         m_nlsat->mk_clause(1, &lit, nullptr);
+    }
+
+    void add_strict_lb(lp::impq const& b, unsigned w) {
+        add_bound(b.x, w, false, nlsat::atom::kind::GT);
+    }
+    void add_strict_ub(lp::impq const& b, unsigned w) {
+        add_bound(b.x, w, false, nlsat::atom::kind::LT);
     }
 
     void add_lb(lp::impq const& b, unsigned w) {
@@ -269,7 +324,8 @@ struct solver::imp {
             m_lp2nl.insert(v, w);
         }
         polynomial::polynomial_ref vp(pm.mk_polynomial(w, 1), pm);
-        return pm.add(lo, pm.mul(vp, hi));
+        polynomial::polynomial_ref mp(pm.mul(vp, hi), pm);
+        return pm.add(lo, mp);
     }
 
     bool is_int(lp::var_index v) {
@@ -283,8 +339,6 @@ struct solver::imp {
             r = m_nlsat->mk_var(is_int(v));
             m_lp2nl.insert(v, r);
             if (!m_term_set.contains(v) && s.column_corresponds_to_term(v)) {
-                if (v >= m_term_set.data_size())
-                    m_term_set.resize(v + 1);
                 m_term_set.insert(v);
             }
         }
@@ -361,6 +415,10 @@ lbool solver::check() {
 
 lbool solver::check(vector<dd::pdd> const& eqs) {
     return m_imp->check(eqs);
+}
+
+lbool solver::check_tight(dd::pdd const& eq) {
+    return m_imp->check_tight(eq);
 }
 
 bool solver::need_check() {
