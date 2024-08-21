@@ -51,6 +51,10 @@ namespace euf {
         return true;
     }
 
+    enode_pair th_solver::get_justification_eq(size_t j) {
+        return th_explain::from_index(j).eq_consequent();
+    }
+
     th_euf_solver::th_euf_solver(euf::solver& ctx, symbol const& name, euf::theory_id id):
         th_solver(ctx.get_manager(), name, id),
         ctx(ctx)
@@ -228,6 +232,8 @@ namespace euf {
     th_explain::th_explain(unsigned n_lits, sat::literal const* lits, unsigned n_eqs, enode_pair const* eqs, sat::literal c, enode_pair const& p, th_proof_hint const* pma) {
         m_consequent = c;
         m_eq = p;
+        if (m_eq.first && m_eq.first->get_id() > m_eq.second->get_id())
+            std::swap(m_eq.first, m_eq.second);
         m_proof_hint = pma;
         m_num_literals = n_lits;
         m_num_eqs = n_eqs;
@@ -238,8 +244,11 @@ namespace euf {
             m_literals[i] = lits[i];
         base_ptr += sizeof(literal) * n_lits;
         m_eqs = reinterpret_cast<enode_pair*>(base_ptr);
-        for (i = 0; i < n_eqs; ++i)
+        for (i = 0; i < n_eqs; ++i) {
             m_eqs[i] = eqs[i];
+            if (m_eqs[i].first->get_id() > m_eqs[i].second->get_id())
+                std::swap(m_eqs[i].first, m_eqs[i].second);
+        }
     }
 
     th_explain* th_explain::mk(th_euf_solver& th, unsigned n_lits, sat::literal const* lits, unsigned n_eqs, enode_pair const* eqs, sat::literal c, enode* x, enode* y, th_proof_hint const* pma) {

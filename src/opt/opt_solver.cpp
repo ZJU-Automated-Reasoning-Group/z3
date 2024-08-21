@@ -52,7 +52,7 @@ namespace opt {
         if (m_params.m_case_split_strategy == CS_ACTIVITY_DELAY_NEW) {            
             m_params.m_relevancy_lvl = 0;
         }
-        m_params.m_arith_auto_config_simplex = false;
+        m_params.m_arith_auto_config_simplex = true;
         m_params.m_threads = 1; // need to interact with the solver that created model so can't have threads
         // m_params.m_auto_config = false;
     }
@@ -67,7 +67,7 @@ namespace opt {
         m_dump_benchmarks = p.dump_benchmarks();
         m_params.updt_params(_p);
         m_context.updt_params(_p);
-        m_params.m_arith_auto_config_simplex = false;
+        m_params.m_arith_auto_config_simplex = true;
     }
 
     solver* opt_solver::translate(ast_manager& m, params_ref const& p) {
@@ -259,8 +259,9 @@ namespace opt {
         if (!m_models[i]) 
             m_models.set(i, m_last_model.get());
 
-        if (val > m_objective_values[i])
-            m_objective_values[i] = val;    
+        if (val > m_objective_values[i]) {
+            m_objective_values[i] = val;
+        }
 
         if (!m_last_model)
             return true;
@@ -284,14 +285,7 @@ namespace opt {
         // 
         auto check_bound = [&]() {
             SASSERT(has_shared);
-            bool ok = bound_value(i, val);
-            if (l_true != m_context.check(0, nullptr))  
-                return false;
-            m_context.get_model(m_last_model);
-            if (!m_last_model)
-                return false;
-            update_objective();
-            return ok;
+            return bound_value(i, val) && l_true == m_context.check(0, nullptr);
         };
 
         if (!val.is_finite()) {

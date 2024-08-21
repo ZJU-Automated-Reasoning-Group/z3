@@ -50,7 +50,7 @@ namespace smt {
 
         ~kernel();
 
-        static void copy(kernel& src, kernel& dst);
+        static void copy(kernel& src, kernel& dst, bool override_base);
 
         ast_manager & m() const;
         
@@ -258,7 +258,7 @@ namespace smt {
         expr_ref_vector get_trail(unsigned max_level);
 
         /**
-           \brief (For debubbing purposes) Prints the state of the kernel
+           \brief (For debugging purposes) Prints the state of the kernel
         */
         std::ostream& display(std::ostream & out) const;
 

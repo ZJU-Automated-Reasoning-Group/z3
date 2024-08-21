@@ -29,15 +29,19 @@ add_executable(test-z3
   datalog_parser.cpp
   ddnf.cpp
   diff_logic.cpp
+  distribution.cpp
   dl_context.cpp
   dl_product_relation.cpp
   dl_query.cpp
   dl_relation.cpp
   dl_table.cpp
   dl_util.cpp
-  doc.cpp
+  doc.cpp  
+  dlist.cpp
   egraph.cpp
   escaped.cpp
+  euf_bv_plugin.cpp
+  euf_arith_plugin.cpp
   ex.cpp
   expr_rand.cpp
   expr_substitution.cpp
@@ -102,9 +106,11 @@ add_executable(test-z3
   sat_lookahead.cpp
   sat_user_scope.cpp
   scoped_timer.cpp
+  scoped_vector.cpp
   simple_parser.cpp
   simplex.cpp
   simplifier.cpp
+  sls_test.cpp
   small_object_allocator.cpp
   smt2print_parse.cpp
   smt_context.cpp
