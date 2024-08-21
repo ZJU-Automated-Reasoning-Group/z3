@@ -1117,6 +1117,8 @@ namespace smt {
     */
     bool context::is_diseq(enode * n1, enode * n2) const {
         SASSERT(n1->get_sort() == n2->get_sort());
+        if (m.are_distinct(n1->get_root()->get_expr(), n2->get_root()->get_expr()))
+            return true;
         context * _this = const_cast<context*>(this);
         if (!m_is_diseq_tmp) {
             app * eq       = m.mk_eq(n1->get_expr(), n2->get_expr());
@@ -1672,12 +1674,7 @@ namespace smt {
     }
 
     bool context::can_theories_propagate() const {
-        for (theory* t : m_theory_set) {
-            if (t->can_propagate()) {
-                return true;
-            }
-        }
-        return false;
+        return any_of(m_theory_set, [&](theory* t) { return t->can_propagate(); });
     }
 
     bool context::can_propagate() const {
@@ -4122,7 +4119,6 @@ namespace smt {
             // Moreover, I backtrack only one level.
             bool delay_forced_restart =
                 m_fparams.m_delay_units &&
-                internalized_quantifiers() &&
                 num_lits == 1 &&
                 conflict_lvl > m_search_lvl + 1 &&
                 !m.proofs_enabled() &&
@@ -4271,9 +4267,11 @@ namespace smt {
                 SASSERT(num_lits == 1);
                 expr * unit     = bool_var2expr(lits[0].var());
                 bool unit_sign  = lits[0].sign();
+                while (m.is_not(unit, unit))
+                    unit_sign = !unit_sign;
                 m_units_to_reassert.push_back(unit);
                 m_units_to_reassert_sign.push_back(unit_sign);
-                TRACE("reassert_units", tout << "asserting #" << unit->get_id() << " " << unit_sign << " @ " << m_scope_lvl << "\n";);
+                TRACE("reassert_units", tout << "asserting " << mk_pp(unit, m) << " #" << unit->get_id() << " " << unit_sign << " @ " << m_scope_lvl << "\n";);
             }
 
             m_conflict_resolution->release_lemma_atoms();

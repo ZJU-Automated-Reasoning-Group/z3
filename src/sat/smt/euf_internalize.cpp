@@ -106,7 +106,6 @@ namespace euf {
             attach_node(mk_enode(e, 0, nullptr));        
         return true;
     }
-
     bool solver::post_visit(expr* e, bool sign, bool root) {
         unsigned num = is_app(e) ? to_app(e)->get_num_args() : 0;
         m_args.reset();
@@ -425,7 +424,7 @@ namespace euf {
         // not marked as shared.
 
         for (auto const& p : euf::enode_th_vars(n)) 
-            if (fid2solver(p.get_id())->is_shared(p.get_var())) {
+            if (fid2solver(p.get_id()) && fid2solver(p.get_id())->is_shared(p.get_var())) {
                 n->set_is_shared(l_true);
                 return true;
             }
@@ -436,7 +435,7 @@ namespace euf {
 
     bool solver::is_beta_redex(enode* p, enode* n) const {
         for (auto const& th : enode_th_vars(p))
-            if (fid2solver(th.get_id())->is_beta_redex(p, n))
+            if (fid2solver(th.get_id()) && fid2solver(th.get_id())->is_beta_redex(p, n))
                 return true;
         return false;
     }
@@ -526,4 +525,8 @@ namespace euf {
         return n;
     }
 
+    void solver::add_assertion(expr* f) {
+        m_assertions.push_back(f);
+        m_trail.push(push_back_vector(m_assertions));
+    }
 }

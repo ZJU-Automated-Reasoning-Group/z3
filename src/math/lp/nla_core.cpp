@@ -17,7 +17,7 @@ Author:
 #include "math/grobner/pdd_solver.h"
 #include "math/dd/pdd_interval.h"
 #include "math/dd/pdd_eval.h"
-namespace nla {
+using namespace nla;
 
 typedef lp::lar_term term;
 
@@ -40,8 +40,8 @@ core::core(lp::lar_solver& s, params_ref const& p, reslimit & lim) :
     m_use_nra_model(false),
     m_nra(s, m_nra_lim, *this) 
 {
-    m_nlsat_delay = lp_settings().nlsat_delay();
-    lra.m_find_monics_with_changed_bounds_func = [&](const indexed_uint_set& columns_with_changed_bounds) {
+     m_nlsat_delay_bound = lp_settings().nlsat_delay();
+     lra.m_find_monics_with_changed_bounds_func = [&](const indexed_uint_set& columns_with_changed_bounds) {
         for (lpvar j : columns_with_changed_bounds) {
             if (is_monic_var(j))
                 m_monics_with_changed_bounds.insert(j);
@@ -68,21 +68,10 @@ bool core::compare_holds(const rational& ls, llc cmp, const rational& rs) const 
 rational core::value(const lp::lar_term& r) const {
     rational ret(0);
     for (lp::lar_term::ival t : r) 
-        ret += t.coeff() * val(t.column());
+        ret += t.coeff() * val(t.j());
     return ret;
 }
 
-lp::lar_term core::subs_terms_to_columns(const lp::lar_term& t) const {
-    lp::lar_term r;
-    for (lp::lar_term::ival p : t) {
-        lpvar j = p.column();
-        if (lp::tv::is_term(j))
-            j = lra.map_term_index_to_column_index(j);
-        r.add_monomial(p.coeff(), j);
-    }
-    return r;
-} 
-    
 bool core::ineq_holds(const ineq& n) const {
     return compare_holds(value(n.term()), n.cmp(), n.rs());
 }
@@ -139,10 +128,7 @@ bool core::canonize_sign(const factorization& f) const {
 void core::add_monic(lpvar v, unsigned sz, lpvar const* vs) {
     m_add_buffer.resize(sz);
     for (unsigned i = 0; i < sz; i++) {
-        lpvar j = vs[i];
-        if (lp::tv::is_term(j))
-            j = lra.map_term_index_to_column_index(j);
-        m_add_buffer[i] = j;
+        m_add_buffer[i] = vs[i];
     }
     m_emons.add(v, m_add_buffer);
     m_monics_with_changed_bounds.insert(v);
@@ -326,25 +312,25 @@ bool core::explain_coeff_lower_bound(const lp::lar_term::ival& p, rational& boun
     const rational& a = p.coeff();
     SASSERT(!a.is_zero());
     if (a.is_pos()) {
-        auto* dep = lra.get_column_lower_bound_witness(p.column());
+        auto* dep = lra.get_column_lower_bound_witness(p.j());
         if (!dep)
             return false;
-        bound = a * lra.get_lower_bound(p.column()).x;
+        bound = a * lra.get_lower_bound(p.j()).x;
         lra.push_explanation(dep, e);
         return true;
     }
     // a.is_neg()
-    auto* dep = lra.get_column_upper_bound_witness(p.column());
+    auto* dep = lra.get_column_upper_bound_witness(p.j());
     if (!dep)
         return false;
-    bound = a * lra.get_upper_bound(p.column()).x;
+    bound = a * lra.get_upper_bound(p.j()).x;
     lra.push_explanation(dep, e);
     return true;
 }
 
 bool core::explain_coeff_upper_bound(const lp::lar_term::ival& p, rational& bound, lp::explanation& e) const {
     const rational& a = p.coeff();
-    lpvar j = p.column();
+    lpvar j = p.j();
     SASSERT(!a.is_zero());
     if (a.is_neg()) {
         auto *dep = lra.get_column_lower_bound_witness(j);
@@ -602,7 +588,7 @@ std::ostream & core::print_ineqs(const lemma& l, std::ostream & out) const {
             print_ineq(in, out);
             if (i + 1 < l.ineqs().size()) out << " or ";
             for (lp::lar_term::ival p: in.term())
-                vars.insert(p.column());
+                vars.insert(p.j());
         }
         out << std::endl;
         for (lpvar j : vars) {
@@ -701,13 +687,13 @@ unsigned core::random() { return lp_settings().random_next(); }
 void core::collect_equivs() {
     const lp::lar_solver& s = lra;
 
-    for (unsigned i = 0; i < s.terms().size(); i++) {
-        if (!s.term_is_used_as_row(i))
+    for (const auto * t : s.terms()) {
+        if (!s.column_associated_with_row(t->j()))
             continue;
-        lpvar j = s.external_to_local(lp::tv::mask_term(i));
+        lpvar j = t->j();
         if (var_is_fixed_to_zero(j)) {
-            TRACE("nla_solver_mons", s.print_term_as_indices(*s.terms()[i], tout << "term = ") << "\n";);
-            add_equivalence_maybe(s.terms()[i], s.get_column_upper_bound_witness(j), s.get_column_lower_bound_witness(j));
+            TRACE("nla_solver_mons", s.print_term_as_indices(*t, tout << "term = ") << "\n";);
+            add_equivalence_maybe(t, s.get_column_upper_bound_witness(j), s.get_column_lower_bound_witness(j));
         }
     }
     m_emons.ensure_canonized();
@@ -732,9 +718,9 @@ bool core::is_octagon_term(const lp::lar_term& t, bool & sign, lpvar& i, lpvar &
             return false;
         }
         if (i == null_lpvar)
-            i = p.column();
+            i = p.j();
         else
-            j = p.column();
+            j = p.j();
     }
     SASSERT(j != null_lpvar);
     sign = (seen_minus && seen_plus)? false : true;
@@ -871,7 +857,7 @@ std::unordered_set<lpvar> core::collect_vars(const lemma& l) const {
     
     for (const auto& i : l.ineqs()) {
         for (lp::lar_term::ival p : i.term()) {                
-            insert_j(p.column());
+            insert_j(p.j());
         }
     }
     for (auto p : l.expl()) {
@@ -1076,6 +1062,8 @@ new_lemma::~new_lemma() {
     if (current().is_conflict()) {
         c.m_conflicts++;
     }
+    IF_VERBOSE(4, verbose_stream() << name << "\n");
+    IF_VERBOSE(4, verbose_stream() << *this << "\n");
     TRACE("nla_solver", tout << name << " " << (++i) << "\n" << *this; );
 }
 
@@ -1418,64 +1406,22 @@ void core::patch_monomial(lpvar j) {
 void core::patch_monomials_on_to_refine() {
     // the rest of the function might change m_to_refine, so have to copy
     unsigned_vector to_refine;
-    for (unsigned j :m_to_refine) {
+    for (unsigned j : m_to_refine) 
         to_refine.push_back(j);
-    }
     
     unsigned sz = to_refine.size();
 
     unsigned start = random();
-    for (unsigned i = 0; i < sz; i++) {
+    for (unsigned i = 0; i < sz && !m_to_refine.empty(); i++) 
         patch_monomial(to_refine[(start + i) % sz]);
-        if (m_to_refine.size() == 0)
-            break;
-    }
+
     TRACE("nla_solver", tout << "sz = " << sz << ", m_to_refine = " << m_to_refine.size() <<
-          (sz > m_to_refine.size()? " less" : "same" ) << "\n";);
+          (sz > m_to_refine.size()? " less" : " same" ) << "\n";);
 }
 
 void core::patch_monomials() {
     m_cautious_patching = true;
     patch_monomials_on_to_refine();
-    if (m_to_refine.size() == 0 || !params().arith_nl_expensive_patching()) {
-        return;
-    }
-    NOT_IMPLEMENTED_YET();
-    m_cautious_patching = false; 
-    patch_monomials_on_to_refine();
-    lra.push();
-    save_tableau();
-    constrain_nl_in_tableau();
-    if (solve_tableau() && integrality_holds()) {
-        lra.pop(1);
-    } else {
-        lra.pop();
-        restore_tableau();
-        lra.clear_inf_heap();
-    }
-    SASSERT(lra.ax_is_correct());
-}
-
-void core::constrain_nl_in_tableau() {
-    NOT_IMPLEMENTED_YET();
-}
-
-bool core::solve_tableau() {
-    NOT_IMPLEMENTED_YET();
-    return false;
-}
-
-void core::restore_tableau() {
-    NOT_IMPLEMENTED_YET();
-}
-
-void core::save_tableau() {
-    NOT_IMPLEMENTED_YET();
-}
-
-bool core::integrality_holds() {
-    NOT_IMPLEMENTED_YET();
-    return false;
 }
 
 /**
@@ -1520,6 +1466,9 @@ void core::add_bounds() {
         for (lpvar j : m.vars()) {
             if (!var_is_free(j))
                 continue;
+	    if (m.is_bound_propagated())
+                continue;
+	    m_emons.set_bound_propagated(m);
             // split the free variable (j <= 0, or j > 0), and return
             m_literals.push_back(ineq(j, lp::lconstraint_kind::EQ, rational::zero()));
             TRACE("nla_solver", print_ineq(m_literals.back(), tout) << "\n");                  
@@ -1549,16 +1498,12 @@ lbool core::check() {
     lbool ret = l_undef;
     bool run_grobner = need_run_grobner();
     bool run_horner = need_run_horner();
-    bool run_bounded_nlsat = should_run_bounded_nlsat();
-    bool run_bounds = params().arith_nl_branching();    
+    bool run_bounds = params().arith_nl_branching();
 
-    auto no_effect = [&]() { return !done() && m_lemmas.empty() && m_literals.empty() && !m_check_feasible; };
+    auto no_effect = [&]() { return ret == l_undef && !done() && m_lemmas.empty() && m_literals.empty() && !m_check_feasible; };
     
     if (no_effect())
         m_monomial_bounds.propagate();
-
-    if (no_effect() && improve_bounds())
-        return l_false;
     
     {
         std::function<void(void)> check1 = [&]() { if (no_effect() && run_horner) m_horner.horner_lemmas(); };
@@ -1571,9 +1516,15 @@ lbool core::check() {
               {1, check3} };
         check_weighted(3, checks);
 
-        if (!m_lemmas.empty() || !m_literals.empty())
+        if (lp_settings().get_cancel_flag())
+            return l_undef;
+        if (!m_lemmas.empty() || !m_literals.empty() || m_check_feasible)
             return l_false;
     }
+
+    
+    if (no_effect() && should_run_bounded_nlsat()) 
+        ret = bounded_nlsat();
                 
     if (no_effect()) 
         m_basics.basic_lemma(true); 
@@ -1583,14 +1534,15 @@ lbool core::check() {
 
     if (no_effect()) 
         m_divisions.check();
-    
-    if (no_effect() && run_bounded_nlsat)
-        ret = bounded_nlsat();
 
-    if (no_effect() && ret == l_undef) {
-        std::function<void(void)> check1 = [&]() { m_order.order_lemma(); };
-        std::function<void(void)> check2 = [&]() { m_monotone.monotonicity_lemma(); };
-        std::function<void(void)> check3 = [&]() { m_tangents.tangent_lemma(); };
+
+    if (no_effect()) {
+        std::function<void(void)> check1 = [&]() { m_order.order_lemma();
+        };
+        std::function<void(void)> check2 = [&]() { m_monotone.monotonicity_lemma();
+        };
+        std::function<void(void)> check3 = [&]() { m_tangents.tangent_lemma();
+        };
         
         std::pair<unsigned, std::function<void(void)>> checks[] = 
             { { 6, check1 }, 
@@ -1603,7 +1555,7 @@ lbool core::check() {
             ret = bounded_nlsat();
     }
 
-    if (no_effect() && params().arith_nl_nra() && ret == l_undef) {
+    if (no_effect() && params().arith_nl_nra()) {
         ret = m_nra.check();
         lp_settings().stats().m_nra_calls++;
     }
@@ -1612,10 +1564,9 @@ lbool core::check() {
         ret = l_false;
 
     lp_settings().stats().m_nla_lemmas += m_lemmas.size();
-
     
     TRACE("nla_solver", tout << "ret = " << ret << ", lemmas count = " << m_lemmas.size() << "\n";);
-    IF_VERBOSE(2, if(ret == l_undef) {verbose_stream() << "Monomials\n"; print_monics(verbose_stream());});
+    IF_VERBOSE(5, if(ret == l_undef) {verbose_stream() << "Monomials\n"; print_monics(verbose_stream());});
     CTRACE("nla_solver", ret == l_undef, tout << "Monomials\n"; print_monics(tout););
     return ret;
 }
@@ -1623,9 +1574,9 @@ lbool core::check() {
 bool core::should_run_bounded_nlsat() {
     if (!params().arith_nl_nra())
         return false;
-    if (m_nlsat_delay > m_nlsat_fails)
-        ++m_nlsat_fails;
-    return m_nlsat_delay <= m_nlsat_fails;
+    if (m_nlsat_delay > 0) 
+        --m_nlsat_delay;
+    return m_nlsat_delay < 2;
 }
 
 lbool core::bounded_nlsat() {
@@ -1643,11 +1594,12 @@ lbool core::bounded_nlsat() {
     m_nra.updt_params(p);
     lp_settings().stats().m_nra_calls++;
     if (ret == l_undef) 
-        ++m_nlsat_delay;    
-    else { 
-        m_nlsat_fails = 0;
-        m_nlsat_delay /= 2;
-    }
+        ++m_nlsat_delay_bound;
+    else if (m_nlsat_delay_bound > 0)
+        m_nlsat_delay_bound /= 2;        
+    
+    m_nlsat_delay = m_nlsat_delay_bound;
+
     if (ret == l_true) 
         clear();
     return ret;
@@ -1670,17 +1622,9 @@ lbool core::test_check() {
 }
 
 std::ostream& core::print_terms(std::ostream& out) const {
-    for (unsigned i = 0; i < lra.terms().size(); i++) {
-        unsigned ext = lp::tv::mask_term(i);
-        if (!lra.var_is_registered(ext)) {
-            out << "term is not registered\n";
-            continue;
-        }
-        
-        const lp::lar_term & t = *lra.terms()[i];
-        out << "term:"; print_term(t, out) << std::endl;        
-        lpvar j = lra.external_to_local(ext);
-        print_var(j, out);
+    for (const auto * t: lra.terms()) {
+        out << "term:"; print_term(*t, out) << std::endl;        
+        print_var(t->j(), out);
     }
     return out;
 }
@@ -1714,12 +1658,12 @@ std::unordered_set<lpvar> core::get_vars_of_expr_with_opening_terms(const nex *e
     }
     for (unsigned i = 0; i < added.size(); ++i) {
         lpvar j = added[i];
-        if (ls.column_corresponds_to_term(j)) {
-            const auto& t = lra.get_term(lp::tv::raw(ls.local_to_external(j)));
+        if (ls.column_has_term(j)) {
+            const auto& t = lra.get_term(j);
             for (auto p : t) {
-                if (ret.find(p.column()) == ret.end()) {
-                    added.push_back(p.column());
-                    ret.insert(p.column());
+                if (ret.find(p.j()) == ret.end()) {
+                    added.push_back(p.j());
+                    ret.insert(p.j());
                 }
             }
         }
@@ -1770,8 +1714,6 @@ void core::set_active_vars_weights(nex_creator& nc) {
 }
 
 bool core::influences_nl_var(lpvar j) const {
-    if (lp::tv::is_term(j))
-        j = lp::tv::unmask_term(j);
     if (is_nl_var(j))
         return true;
     for (const auto & c : lra.A_r().m_columns[j]) {
@@ -1789,38 +1731,20 @@ void core::set_use_nra_model(bool m) {
     }
 }
     
-void core::collect_statistics(::statistics & st) {
-}
-
-bool core::improve_bounds() {
-    return false;
-
-    uint_set seen;
-    bool bounds_improved = false;
-    auto insert = [&](lpvar v) {
-        if (seen.contains(v))
-            return;
-        seen.insert(v);
-        if (lra.improve_bound(v, false))
-            bounds_improved = true, lp_settings().stats().m_nla_bounds_improvements++;
-        if (lra.improve_bound(v, true))
-            bounds_improved = true, lp_settings().stats().m_nla_bounds_improvements++;
-    };
-    for (auto & m : m_emons) {
-        insert(m.var());
-        for (auto v : m.vars())
-            insert(v);
-    }
-    return bounds_improved;
-}
-    
 void core::propagate() {
+#if Z3DEBUG
+    flet f(lra.validate_blocker(), true);
+#endif
     clear();
     m_monomial_bounds.unit_propagate();
     m_monics_with_changed_bounds.reset();
 }
 
+void core::simplify() {
+    // in-processing simplifiation can go here, such as bounds improvements.
+
+}
 
 
-} // end of nla
+
 

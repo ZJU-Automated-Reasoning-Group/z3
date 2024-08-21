@@ -130,7 +130,11 @@ namespace smt {
     }
 
     bool theory_special_relations::internalize_term(app * term) {
-        verbose_stream() << mk_pp(term, m) << "\n";
+        m_terms.push_back(term);
+        ctx.push_trail(push_back_vector(m_terms));
+        std::stringstream strm;
+        strm << "term not not handled by special relations procedure. Use sat.smt=true " << mk_pp(term, m);
+        warning_msg(strm.str().c_str());
         return false;
     }
 
@@ -207,9 +211,10 @@ namespace smt {
         if (new_equality) {
             return FC_CONTINUE;
         }
-        else {
+        else if (!m_terms.empty()) 
+            return FC_GIVEUP;
+        else 
             return FC_DONE;
-        }
     }
 
     lbool theory_special_relations::final_check_lo(relation& r) {
@@ -888,11 +893,17 @@ namespace smt {
 
         func_decl* memf, *nextf, *connectedf;
 
-        std::string member, next, connected_sym;
-        unsigned index = r.decl()->get_parameter(0).get_int();
-        member = "member" + std::to_string(index);
-        next = "next" + std::to_string(index);
-        connected_sym = "connected" + std::to_string(index);
+        std::string member, next, connected_sym, id;
+        auto const& pa = r.decl()->get_parameter(0);
+        if (pa.is_int())
+            id = std::to_string(pa.get_int());
+        else if (pa.is_ast() && is_func_decl(pa.get_ast()))
+            id = to_func_decl(pa.get_ast())->get_name().str();
+        else
+            throw default_exception("expected an integer or function declaration");        
+        member = "member" + id;
+        next = "next" + id;
+        connected_sym = "connected" + id;
         {
             sort* dom[2] = { s, listS };
             recfun::promise_def mem = p.ensure_def(symbol(member), 2, dom, m.mk_bool_sort(), true);

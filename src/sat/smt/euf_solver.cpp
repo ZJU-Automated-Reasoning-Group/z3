@@ -21,13 +21,16 @@ Author:
 #include "sat/smt/sat_smt.h"
 #include "sat/smt/pb_solver.h"
 #include "sat/smt/bv_solver.h"
+#include "sat/smt/intblast_solver.h"
 #include "sat/smt/euf_solver.h"
 #include "sat/smt/array_solver.h"
 #include "sat/smt/arith_solver.h"
 #include "sat/smt/q_solver.h"
 #include "sat/smt/fpa_solver.h"
 #include "sat/smt/dt_solver.h"
+#include "sat/smt/sls_solver.h"
 #include "sat/smt/recfun_solver.h"
+#include "sat/smt/specrel_solver.h"
 
 namespace euf {
 
@@ -52,6 +55,7 @@ namespace euf {
         m_smt_proof_checker(m, p),
         m_clause(m),       
         m_expr_args(m),
+        m_assertions(m),
         m_values(m)
     {
         updt_params(p);
@@ -75,6 +79,7 @@ namespace euf {
             };
             m_egraph.set_on_merge(on_merge);
         }
+        
     }
 
     void solver::updt_params(params_ref const& p) {
@@ -130,10 +135,19 @@ namespace euf {
         arith_util arith(m);
         datatype_util dt(m);
         recfun::util rf(m);
+        special_relations_util sp(m);
         if (pb.get_family_id() == fid)
             ext = alloc(pb::solver, *this, fid);
-        else if (bvu.get_family_id() == fid)
-            ext = alloc(bv::solver, *this, fid);
+        else if (bvu.get_family_id() == fid) {
+            if (get_config().m_bv_solver == 0)
+                ext = alloc(bv::solver, *this, fid);
+            else if (get_config().m_bv_solver == 1)
+                throw default_exception("polysat solver is not integrated");
+            else if (get_config().m_bv_solver == 2)
+                ext = alloc(intblast::solver, *this);
+            else 
+                throw default_exception("unknown bit-vector solver. Accepted values 0 (bit blast), 1 (polysat), 2 (int blast)");
+        }
         else if (au.get_family_id() == fid)
             ext = alloc(array::solver, *this, fid);
         else if (fpa.get_family_id() == fid)
@@ -144,6 +158,8 @@ namespace euf {
             ext = alloc(dt::solver, *this, fid);
         else if (rf.get_family_id() == fid)
             ext = alloc(recfun::solver, *this);
+        else if (sp.get_family_id() == fid)
+            ext = alloc(specrel::solver, *this, fid);
         
         if (ext) 
             add_solver(ext);        
@@ -172,7 +188,9 @@ namespace euf {
         IF_VERBOSE(0, verbose_stream() << mk_pp(f, m) << " not handled\n");
     }
 
-    void solver::init_search() {        
+    void solver::init_search() {   
+        if (get_config().m_sls_enable)
+            add_solver(alloc(sls::solver, *this));
         TRACE("before_search", s().display(tout););
         m_reason_unknown.clear();
         for (auto* s : m_solvers)
@@ -203,6 +221,15 @@ namespace euf {
     void solver::propagate(literal lit, ext_justification_idx idx) {
         mark_relevant(lit);
         s().assign(lit, sat::justification::mk_ext_justification(s().scope_lvl(), idx));
+    }
+    
+    lbool solver::resolve_conflict() {
+        for (auto* s : m_solvers) {
+            lbool r = s->resolve_conflict();
+            if (r != l_undef)
+                return r;
+        }
+        return l_undef;
     }
 
     /**
@@ -251,9 +278,9 @@ namespace euf {
                 r.push_back(get_literal(e));            
             else {
                 multiple_theories = true;
-                size_t idx = get_justification(e);
+                size_t idx = get_justification(e);                
                 auto* ext = sat::constraint_base::to_extension(idx);
-                SASSERT(ext != this);
+                SASSERT(ext != this);             
                 sat::literal lit = sat::null_literal;
                 ext->get_antecedents(lit, idx, r, probing);
             }
@@ -276,6 +303,26 @@ namespace euf {
                 log_rup(l, r);
         }
     }
+
+    void solver::get_eq_antecedents(enode* a, enode* b, literal_vector& r) {
+        m_egraph.begin_explain();
+        m_explain.reset();
+	    m_egraph.explain_eq<size_t>(m_explain, nullptr, a, b);
+	    for (unsigned qhead = 0; qhead < m_explain.size(); ++qhead) {
+	        size_t* e = m_explain[qhead];
+	        if (is_literal(e)) 
+	            r.push_back(get_literal(e));            
+            else {
+                size_t idx = get_justification(e);
+                auto* ext = sat::constraint_base::to_extension(idx);
+                SASSERT(ext != this);
+                sat::literal lit = sat::null_literal;
+                ext->get_antecedents(lit, idx, r, true);
+            }
+        }
+        m_egraph.end_explain();
+    }
+
 
     void solver::get_th_antecedents(literal l, th_explain& jst, literal_vector& r, bool probing) {
         for (auto lit : euf::th_explain::lits(jst))
@@ -431,6 +478,9 @@ namespace euf {
     }
 
 
+    bool solver::can_propagate() {
+        return m_egraph.can_propagate();
+    }
 
     bool solver::unit_propagate() {
         bool propagated = false;
@@ -473,6 +523,7 @@ namespace euf {
         SASSERT(m.is_bool(e));
         size_t cnstr;
         literal lit;
+
         if (!ante) {
             VERIFY(m.is_eq(e, a, b));
             cnstr = eq_constraint().to_index();
@@ -490,7 +541,7 @@ namespace euf {
             if (val == l_undef) {
                 SASSERT(m.is_value(ante->get_expr()));
                 val = m.is_true(ante->get_expr()) ? l_true : l_false;
-            }
+            }           
             auto& c = lit_constraint(ante);
             cnstr = c.to_index();
             lit = literal(v, val == l_false);
@@ -618,7 +669,9 @@ namespace euf {
         if (give_up)
             return sat::check_result::CR_GIVEUP;  
         if (m_qsolver && m_config.m_arith_ignore_int)
-            return sat::check_result::CR_GIVEUP;            
+            return sat::check_result::CR_GIVEUP; 
+        for (auto s : m_solvers)
+            s->finalize();
         return sat::check_result::CR_DONE;
     }
 
@@ -1008,8 +1061,10 @@ namespace euf {
                 return out << "euf conflict";
             case constraint::kind_t::eq:
                 return out << "euf equality propagation";
-            case constraint::kind_t::lit:
-                return out << "euf literal propagation " << m_egraph.bpp(c.node()) ;                
+            case constraint::kind_t::lit: {
+                euf::enode* n = c.node();
+                return out << "euf literal propagation " << (sat::literal(n->bool_var(), n->value() == l_false)) << " " << m_egraph.bpp(n);
+            } 
             default:
                 UNREACHABLE();
                 return out;
@@ -1057,14 +1112,14 @@ namespace euf {
             SASSERT(true_lit != sat::null_literal); 
             return (void*)(r->to_ptr(true_lit)); 
         };
-        r->m_egraph.copy_from(m_egraph, copy_justification);        
         r->set_solver(s);
+        r->m_egraph.copy_from(m_egraph, copy_justification);        
         for (euf::enode* n : r->m_egraph.nodes()) {
             auto b = n->bool_var();
             if (b != sat::null_bool_var) {
                 r->m_bool_var2expr.setx(b, n->get_expr(), nullptr);
                 SASSERT(r->m.is_bool(n->get_sort()));
-                IF_VERBOSE(11, verbose_stream() << "set bool_var " << b << " " << r->bpp(n) << " " << mk_bounded_pp(n->get_expr(), m) << "\n");
+                IF_VERBOSE(20, verbose_stream() << "set bool_var " << b << " " << r->bpp(n) << " " << mk_bounded_pp(n->get_expr(), m) << "\n");
             }
         }
         for (auto* s_orig : m_id2solver) {

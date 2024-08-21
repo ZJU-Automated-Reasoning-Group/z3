@@ -83,8 +83,11 @@ namespace smt {
         expr_ref_vector        m_to_add;
         unsigned_vector        m_to_add_lim;
         unsigned               m_to_add_qhead = 0;
-        bool_var               m_next_split_var = null_bool_var;
+        expr*                  m_next_split_var = nullptr;
+        unsigned               m_next_split_idx = 0;
         lbool                  m_next_split_phase = l_undef;
+        vector<expr_ref_vector> m_clauses_to_replay;
+        unsigned                m_replay_qhead = 0;
 
         expr* var2expr(theory_var v) { return m_var2expr.get(v); }
         theory_var expr2var(expr* e) { check_defined(e); return m_expr2var[e->get_id()]; }
@@ -99,6 +102,8 @@ namespace smt {
         void propagate_new_fixed(prop_info const& prop);
         
         bool_var enode_to_bool(enode* n, unsigned bit);
+
+        void replay_clause(expr_ref_vector const& clause);
 
     public:
         theory_user_propagator(context& ctx);

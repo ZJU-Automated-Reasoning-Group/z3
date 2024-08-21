@@ -38,7 +38,7 @@ namespace euf {
 namespace arith {
 
     typedef ptr_vector<lp_api::bound<sat::literal>> lp_bounds;
-    typedef lp::var_index lpvar;
+    typedef lp::lpvar lpvar;
     typedef euf::theory_var theory_var;
     typedef euf::theory_id theory_id;
     typedef euf::enode enode;
@@ -214,6 +214,7 @@ namespace arith {
         expr* m_not_handled = nullptr;
         ptr_vector<app>        m_underspecified;
         ptr_vector<expr>       m_idiv_terms;
+        ptr_vector<app>        m_bv_terms;
         vector<ptr_vector<api_bound> > m_use_list;        // bounds where variables are used.
 
         // attributes for incremental version:
@@ -233,7 +234,6 @@ namespace arith {
 
         // non-linear arithmetic
         scoped_ptr<nla::solver>  m_nla;
-        scoped_ptr<scoped_anum>  m_a1, m_a2;
 
         // integer arithmetic
         scoped_ptr<lp::int_solver>   m_lia;
@@ -245,7 +245,7 @@ namespace arith {
         symbol                       m_farkas;
         std_vector<lp::implied_bound> m_implied_bounds;
         lp::lp_bound_propagator<solver> m_bp;
-        mutable vector<std::pair<lp::tv, rational>> m_todo_terms;
+        mutable vector<std::pair<lp::lpvar, rational>> m_todo_terms;
 
         // lemmas
         lp::explanation     m_explanation;
@@ -293,10 +293,11 @@ namespace arith {
         theory_var internalize_linearized_def(expr* term, scoped_internalize_state& st);
         void init_left_side(scoped_internalize_state& st);
         bool internalize_term(expr* term);
-        bool internalize_atom(expr* atom);
+        bool internalize_atom(expr* atom);        
         bool is_unit_var(scoped_internalize_state& st);
         bool is_one(scoped_internalize_state& st);
         bool is_zero(scoped_internalize_state& st);
+        expr* mk_sub(expr* a, expr* b);
         enode* mk_enode(expr* e);
 
         lpvar register_theory_var_in_lar_solver(theory_var v);
@@ -305,7 +306,7 @@ namespace arith {
         bool reflect(expr* n) const;
 
         lpvar get_lpvar(theory_var v) const;
-        lp::tv get_tv(theory_var v) const;
+        lp::lpvar get_column(theory_var v) const;
 
         // axioms
         void mk_div_axiom(expr* p, expr* q);
@@ -317,6 +318,7 @@ namespace arith {
         void mk_bound_axioms(api_bound& b);
         void mk_bound_axiom(api_bound& b1, api_bound& b2);
         void mk_power0_axioms(app* t, app* n);
+        void mk_bv_axiom(app* n);
         void flush_bound_axioms();
         void add_farkas_clause(sat::literal l1, sat::literal l2);
 
@@ -346,7 +348,7 @@ namespace arith {
             iterator end,
             bool& found_compatible);
 
-        void propagate_eqs(lp::tv t, lp::constraint_index ci, lp::lconstraint_kind k, api_bound& b, rational const& value);
+        void propagate_eqs(lp::lpvar t, lp::constraint_index ci, lp::lconstraint_kind k, api_bound& b, rational const& value);
         void propagate_basic_bounds(unsigned qhead);
         void propagate_bounds_with_lp_solver();
         void propagate_bound(literal lit, api_bound& b);
@@ -355,14 +357,14 @@ namespace arith {
         literal is_bound_implied(lp::lconstraint_kind k, rational const& value, api_bound const& b) const;
         void assert_bound(bool is_true, api_bound& b);
         void mk_eq_axiom(bool is_eq, euf::th_eq const& eq);
-        void mk_diseq_axiom(euf::th_eq const& eq);
+        void mk_diseq_axiom(theory_var v1, theory_var v2);
         void assert_idiv_mod_axioms(theory_var u, theory_var v, theory_var w, rational const& r);
         api_bound* mk_var_bound(sat::literal lit, theory_var v, lp_api::bound_kind bk, rational const& bound);
         lp::lconstraint_kind bound2constraint_kind(bool is_int, lp_api::bound_kind bk, bool is_true);
         void fixed_var_eh(theory_var v1, u_dependency* dep, rational const& bound);
-        bool set_upper_bound(lp::tv t, lp::constraint_index ci, rational const& v) { return set_bound(t, ci, v, false); }
-        bool set_lower_bound(lp::tv t, lp::constraint_index ci, rational const& v) { return set_bound(t, ci, v, true); }
-        bool set_bound(lp::tv tv, lp::constraint_index ci, rational const& v, bool is_lower);
+        bool set_upper_bound(lp::lpvar t, lp::constraint_index ci, rational const& v) { return set_bound(t, ci, v, false); }
+        bool set_lower_bound(lp::lpvar t, lp::constraint_index ci, rational const& v) { return set_bound(t, ci, v, true); }
+        bool set_bound(lp::lpvar tv, lp::constraint_index ci, rational const& v, bool is_lower);
 
         typedef std::pair<lp::constraint_index, rational> constraint_bound;
         vector<constraint_bound>        m_lower_terms;
@@ -402,11 +404,14 @@ namespace arith {
         bool delayed_assume_eqs();
         bool is_eq(theory_var v1, theory_var v2);
         bool use_nra_model();
+        bool include_func_interp(enode* n) const;
 
         lbool make_feasible();
         bool  check_delayed_eqs();
         lbool check_lia();
         lbool check_nla();
+        bool check_bv_terms();
+        bool check_bv_term(app* n);
         void add_lemmas();
         void propagate_nla();
         void add_equality(lpvar v, rational const& k, lp::explanation const& exp);
@@ -478,6 +483,7 @@ namespace arith {
         arith_proof_hint const* explain_conflict(hint_type ty, sat::literal_vector const& core, euf::enode_pair_vector const& eqs);
         void explain_assumptions(lp::explanation const& e);
 
+        bool validate_conflict();
 
     public:
         solver(euf::solver& ctx, theory_id id);
@@ -521,6 +527,8 @@ namespace arith {
         bool add_eq(lpvar u, lpvar v, lp::explanation const& e, bool is_fixed);
         void consume(rational const& v, lp::constraint_index j);
         bool bound_is_interesting(unsigned vi, lp::lconstraint_kind kind, const rational& bval) const;
+
+        bool get_value(euf::enode* n, expr_ref& val);
     };
 
 

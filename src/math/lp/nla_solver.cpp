@@ -83,15 +83,22 @@ namespace nla {
 
     nlsat::anum_manager& solver::am() { return m_core->m_nra.am(); }
 
-    nlsat::anum const& solver::am_value(lp::var_index v) const {
+    nlsat::anum const& solver::am_value(lp::lpvar v) const {
         SASSERT(use_nra_model());
         return m_core->m_nra.value(v);
     }
     
-    void solver::collect_statistics(::statistics & st) {
-        m_core->collect_statistics(st);
+    scoped_anum& solver::tmp1() {
+        SASSERT(use_nra_model());
+        return m_core->m_nra.tmp1();
     }
 
+    scoped_anum& solver::tmp2() {
+        SASSERT(use_nra_model());
+        return m_core->m_nra.tmp2();
+    }
+
+    
     // ensure r = x^y, add abstraction/refinement lemmas
     lbool solver::check_power(lpvar r, lpvar x, lpvar y) {
         return m_core->check_power(r, x, y);
@@ -109,11 +116,11 @@ namespace nla {
         return m_core->literals();
     }
 
-    vector<nla::equality> const& solver::equalities() const {
+    vector<lp::equality> const& solver::equalities() const {
         return m_core->equalities();
     }
 
-    vector<nla::fixed_equality> const& solver::fixed_equalities() const {
+    vector<lp::fixed_equality> const& solver::fixed_equalities() const {
         return m_core->fixed_equalities();
     }
 

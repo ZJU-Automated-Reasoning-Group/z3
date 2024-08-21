@@ -20,7 +20,7 @@ namespace lp  {
         lra(lia.lra),
         m_settings(lia.settings()),
         m_abs_max(zero_of_type<mpq>()),
-        m_var_register(false) {}
+        m_var_register() {}
     
     bool hnf_cutter::is_full() const {
         return
@@ -50,7 +50,7 @@ namespace lp  {
         m_constraints_for_explanation.push_back(ci);
        
         for (lar_term::ival p : *t) {
-            m_var_register.add_var(p.column().index(), true); // hnf only deals with integral variables for now
+            m_var_register.add_var(p.j(), true); // hnf only deals with integral variables for now
             mpq t = abs(ceil(p.coeff()));
             if (t > m_abs_max)
                 m_abs_max = t;
@@ -83,14 +83,13 @@ namespace lp  {
             // consider return from here if b[i] is not an integer and return i
         }
     }
-
+    
     vector<mpq> hnf_cutter::create_b(const svector<unsigned> & basis_rows) {
         if (basis_rows.size() == m_right_sides.size())
             return m_right_sides;
         vector<mpq> b;
-        for (unsigned i : basis_rows) {
-            b.push_back(m_right_sides[i]);
-        }
+        for (unsigned i : basis_rows) 
+            b.push_back(m_right_sides[i]);        
         return b;
     }
 
@@ -98,16 +97,15 @@ namespace lp  {
         int ret = -1;
         int n = 0;
         for (int i = 0; i < static_cast<int>(b.size()); i++) {
-            if (is_integer(b[i])) continue;
-            if (n == 0 ) {
+            if (is_integer(b[i]))
+                continue;
+            if (n == 0) {
                 lp_assert(ret == -1);
                 n = 1;
                 ret = i;
-            } else {
-                if (m_settings.random_next() % (++n) == 0) {
-                    ret = i;
-                }
             }
+            else if (m_settings.random_next() % (++n) == 0) 
+                ret = i;            
         }
         return ret;
     }
@@ -229,40 +227,35 @@ branch y_i >= ceil(y0_i) is impossible.
 
     svector<unsigned> hnf_cutter::vars() const { return m_var_register.vars(); }
 
-    void hnf_cutter::try_add_term_to_A_for_hnf(tv const &i) {
+    void hnf_cutter::try_add_term_to_A_for_hnf(lpvar j) {
         mpq rs;
-        const lar_term& t = lra.get_term(i);
+        const lar_term& t = lra.get_term(j);
         u_dependency* dep;
         bool upper_bound;
-        if (!is_full() && lra.get_equality_and_right_side_for_term_on_current_x(i, rs, dep, upper_bound)) {
+        if (!is_full() && lra.get_equality_and_right_side_for_term_on_current_x(j, rs, dep, upper_bound)) {
             add_term(&t, rs, dep, upper_bound);
         }
     }
 
     bool hnf_cutter::hnf_has_var_with_non_integral_value() const {
-        for (unsigned j : vars())
-            if (!lia.get_value(j).is_int())
-                return true;
-        return false;
+        return any_of(vars(), [&](unsigned j) { return !lia.get_value(j).is_int(); });
     }
 
     bool hnf_cutter::init_terms_for_hnf_cut() {
         clear();
-        for (unsigned i = 0; i < lra.terms().size() && !is_full(); i++) 
-            try_add_term_to_A_for_hnf(tv::term(i));
+        for (const lar_term* t:  lra.terms()) 
+            try_add_term_to_A_for_hnf(t->j());
         return hnf_has_var_with_non_integral_value();
     }
-
+    
     lia_move hnf_cutter::make_hnf_cut() {
-        if (!init_terms_for_hnf_cut()) {
+        if (!init_terms_for_hnf_cut()) 
             return lia_move::undef;
-        }
         lia.settings().stats().m_hnf_cutter_calls++;
         TRACE("hnf_cut", tout << "settings().stats().m_hnf_cutter_calls = " << lia.settings().stats().m_hnf_cutter_calls << "\n";
-              for (u_dependency* d : constraints_for_explanation()) {
-                for (auto ci : lra.flatten(d))
-                  lra.constraints().display(tout, ci);
-              }              
+              for (u_dependency* d : constraints_for_explanation()) 
+                  for (auto ci : lra.flatten(d))
+                      lra.constraints().display(tout, ci);
               tout << lra.constraints();
               );
 #ifdef Z3DEBUG
@@ -273,14 +266,14 @@ branch y_i >= ceil(y0_i) is impossible.
                                  , x0
 #endif
                                  );
-
+        
         if (r == lia_move::cut) {      
             TRACE("hnf_cut",
                   lra.print_term(lia.m_t, tout << "cut:"); 
                   tout << " <= " << lia.m_k << std::endl;
                   for (auto* dep : constraints_for_explanation()) 
                       for (auto ci : lra.flatten(dep))
-                        lra.constraints().display(tout, ci);                  
+                          lra.constraints().display(tout, ci);                  
                   );
             lp_assert(lia.current_solution_is_inf_on_cut());
             lia.settings().stats().m_hnf_cuts++;
@@ -291,5 +284,4 @@ branch y_i >= ceil(y0_i) is impossible.
         } 
         return r;
     }
-
 }

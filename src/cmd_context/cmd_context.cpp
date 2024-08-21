@@ -1070,9 +1070,11 @@ void cmd_context::insert_rec_fun(func_decl* f, expr_ref_vector const& binding, s
 }
 
 func_decl * cmd_context::find_func_decl(symbol const & s) const {
+#if 0
     if (contains_macro(s)) {
         throw cmd_exception("invalid function declaration reference, named expressions (aka macros) cannot be referenced ", s);
     }
+#endif
     func_decls fs;
     if (m_func_decls.find(s, fs)) {
         if (fs.more_than_one())
@@ -1678,6 +1680,8 @@ void cmd_context::restore_assertions(unsigned old_sz) {
         SASSERT(m_assertions.empty());
         return;
     }
+    if (m_assertions.empty())
+        return;
     if (old_sz == m_assertions.size())
         return;
     SASSERT(old_sz < m_assertions.size());
@@ -1892,6 +1896,8 @@ void cmd_context::add_declared_functions(model& mdl) {
     model_params p;
     if (!p.user_functions())
         return;
+    if (m_params.m_smtlib2_compliant)
+        return;
     for (auto const& kv : m_func_decls) {
         func_decl* f = kv.m_value.first();
         if (f->get_family_id() == null_family_id && !mdl.has_interpretation(f)) {
@@ -2064,7 +2070,10 @@ void cmd_context::complete_model(model_ref& md) const {
                 
             if (m_macros.find(k, decls)) 
                 body = decls.find(f->get_arity(), f->get_domain());
+            if (body && m_params.m_smtlib2_compliant)
+                continue;
             sort * range = f->get_range();
+            
             if (!body)
                 body = m().get_some_value(range);
             if (f->get_arity() > 0) {
@@ -2296,6 +2305,8 @@ vector<std::pair<expr*,expr*>> cmd_context::tracked_assertions() {
 }
 
 void cmd_context::reset_tracked_assertions() {
+    for (expr* a : m_assertion_names)
+        m().dec_ref(a);
     m_assertion_names.reset();
     for (expr* a : m_assertions)
         m().dec_ref(a);

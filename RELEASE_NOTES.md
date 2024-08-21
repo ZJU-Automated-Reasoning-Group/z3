@@ -9,7 +9,44 @@ Version 4.next
   - polysat
     - native word level bit-vector solving.
   - introduction of simple induction lemmas to handle a limited repertoire of induction proofs.
-  - Light quantifier elimination based on term graphs (egraphs), and corresponding Model Based Projection for arrays and ADTs. Used by Spacer and QSAT.
+
+Version 4.13.1
+==============
+- single-sample cell projection in nlsat was designed by Haokun Li and Bican Xia. 
+- using simple-checker together with and variable ordering supported by qfnra_tactic was developed by Mengyu Zhao (Linxi) and Shaowei Cai.
+
+   The projection is described in paper by Haokun Li and Bican Xia,   [Solving Satisfiability of Polynomial Formulas By Sample - Cell Projection](https://arxiv.org/abs/2003.00409). The code ported from https://github.com/hybridSMT/hybridSMT.git 
+
+Version 4.13.0
+==============
+- add ARM64 wheels for Python, thanks to Steven Moy, smoy
+
+Version 4.12.6
+==============
+- remove expensive rewrite that coalesces adjacent stores
+- improved Java use of reference queues thanks to Thomas Haas #7131
+- fixes to conditional import of python library thanks to Cal Jacobson #7116
+- include universe for constants that get removed during pre-processing #7121
+- code improvements, Bruce Mitchener #7119
+- fix nested callback handling for user propagators
+- include ARM64 binaries in distribution
+- added Julia API, Thanks to Yisu Remy Yang #7108
+
+Version 4.12.5
+==============
+- Fixes to pypi setup and build for MacOS distributions
+- A new theory solver "int-blast" enabled by using:
+  - sat.smt=true smt.bv.solver=2
+  - It solves a few bit-vector problems not handled by bit-blasting, especially if the bit-widths are large.
+  - It is based on encoding bit-vector constraints to non-linear integer arithmetic.
+- Optimizations to the arithmetic solver. Description: https://github.com/Z3Prover/doc/tree/master/arithmetic
+
+Version 4.12.4
+==============
+- Re-release fixing a few issues with 4.12:
+  - Python dependency on importlib.resources vs importlib_resources break automatic pypi installations. Supposedly fixed by conditioning dependency on Python 3.9 where the feature is built-in.
+  - Missing release of arm64 for Ubuntu.
+  - Futile attempt to streamline adding readme.md file as part of Nuget distribution. Nuget.org now requires a readme file. I was able to integrate the readme with the cmake build, but the cross-platform repackage in scripts/mk_nuget_task.py does not ingest a similar readme file with the CI pipelines.
 
 Version 4.12.3
 ==============
@@ -23,6 +60,12 @@ Version 4.12.3
 - Various (ongoing) performance fixes and improvements to smt.arith.solver=6
 - A working version of solver.proof.trim=true option. Proofs logs created when using sat.smt=true may be trimmed by running z3
   on the generated proof log using the option solver.proof.trim=true. 
+- Optimizations LIA and NIA (linear integer arithmetic and non-linear integer (and real) arithmetic reasoning).
+  smt.arith.solver=6 is the default for most use cases. It trails smt.arith.solver=2 in some scenarios and the gap has been either removed or reduced.
+  smt.arith.solver=6 is complete for integrations of non-linear real arithmetic and theories, smt.arith.solver=2 is not. 
+- qel: Light quantifier elimination based on term graphs (egraphs), and corresponding Model Based Projection for arrays and ADTs. Used by Spacer and QSAT.
+- added real-closed fields features to C API, exposed more RCF over OCaml API
+- fixes to FP
 
 Version 4.12.2
 ==============

@@ -24,12 +24,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: "lts/*"
 
       - name: Setup emscripten
-        uses: mymindstorm/setup-emsdk@v12
+        uses: mymindstorm/setup-emsdk@v14
         with:
           no-install: true
           version: ${{env.EM_VERSION}}
@@ -48,7 +48,7 @@ jobs:
           source $(dirname $(which emsdk))/emsdk_env.sh
           which node
           which clang++
-          npm run build:wasm
+          npm run build:wasm -- -sINITIAL_MEMORY=128MB -sALLOW_MEMORY_GROWTH
 
       - name: Test
         run: npm test

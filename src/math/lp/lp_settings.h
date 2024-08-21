@@ -53,9 +53,8 @@ inline std::ostream& operator<<(std::ostream& out, column_type const& t) {
 }
 
 enum class simplex_strategy_enum {
-    undecided = 3,
-    tableau_rows = 0,
-    tableau_costs = 1
+    tableau_rows,
+    tableau_costs
 };
 
 std::string column_type_to_string(column_type t);
@@ -98,38 +97,42 @@ public:
 };
 
 struct statistics {
-    unsigned m_make_feasible;
-    unsigned m_total_iterations;
-    unsigned m_iters_with_no_cost_growing;
-    unsigned m_num_factorizations;
-    unsigned m_num_of_implied_bounds;
-    unsigned m_need_to_solve_inf;
-    unsigned m_max_cols;
-    unsigned m_max_rows;
-    unsigned m_gcd_calls;
-    unsigned m_gcd_conflicts;
-    unsigned m_cube_calls;
-    unsigned m_cube_success;
-    unsigned m_patches;
-    unsigned m_patches_success;
-    unsigned m_hnf_cutter_calls;
-    unsigned m_hnf_cuts;
-    unsigned m_nla_calls;
-    unsigned m_nla_add_bounds;
-    unsigned m_nla_propagate_bounds;
-    unsigned m_nla_propagate_eq;
-    unsigned m_nla_lemmas;
-    unsigned m_nra_calls;
-    unsigned m_nla_bounds_improvements;
-    unsigned m_horner_calls;
-    unsigned m_horner_conflicts;
-    unsigned m_cross_nested_forms;
-    unsigned m_grobner_calls;
-    unsigned m_grobner_conflicts;
-    unsigned m_offset_eqs;
-    unsigned m_fixed_eqs;
-    statistics() { reset(); }
-    void reset() { memset(this, 0, sizeof(*this)); }
+    unsigned m_make_feasible = 0;
+    unsigned m_total_iterations = 0;
+    unsigned m_iters_with_no_cost_growing = 0;
+    unsigned m_num_factorizations = 0;
+    unsigned m_num_of_implied_bounds = 0;
+    unsigned m_need_to_solve_inf = 0;
+    unsigned m_max_cols = 0;
+    unsigned m_max_rows = 0;
+    unsigned m_gcd_calls = 0;
+    unsigned m_gcd_conflicts = 0;
+    unsigned m_cube_calls = 0;
+    unsigned m_cube_success = 0;
+    unsigned m_patches = 0;
+    unsigned m_patches_success = 0;
+    unsigned m_hnf_cutter_calls = 0;
+    unsigned m_hnf_cuts = 0;
+    unsigned m_nla_calls = 0;
+    unsigned m_gomory_cuts = 0;
+    unsigned m_nla_add_bounds = 0;
+    unsigned m_nla_propagate_bounds = 0;
+    unsigned m_nla_propagate_eq = 0;
+    unsigned m_nla_lemmas = 0;
+    unsigned m_nra_calls = 0;
+    unsigned m_nla_bounds_improvements = 0;
+    unsigned m_horner_calls = 0;
+    unsigned m_horner_conflicts = 0;
+    unsigned m_cross_nested_forms = 0;
+    unsigned m_grobner_calls = 0;
+    unsigned m_grobner_conflicts = 0;
+    unsigned m_offset_eqs = 0;
+    unsigned m_fixed_eqs = 0;
+    ::statistics m_st = {};
+
+    void reset() {
+        *this = statistics{};
+    }
     void collect_statistics(::statistics& st) const {
         st.update("arith-factorizations", m_num_factorizations);
         st.update("arith-make-feasible", m_make_feasible);
@@ -143,6 +146,7 @@ struct statistics {
         st.update("arith-patches-success", m_patches_success);
         st.update("arith-hnf-calls", m_hnf_cutter_calls);
         st.update("arith-hnf-cuts", m_hnf_cuts);
+        st.update("arith-gomory-cuts", m_gomory_cuts);
         st.update("arith-horner-calls", m_horner_calls);
         st.update("arith-horner-conflicts", m_horner_conflicts);
         st.update("arith-horner-cross-nested-forms", m_cross_nested_forms);
@@ -156,7 +160,7 @@ struct statistics {
         st.update("arith-nla-lemmas", m_nla_lemmas);
         st.update("arith-nra-calls", m_nra_calls);   
         st.update("arith-bounds-improvements", m_nla_bounds_improvements);
-
+        st.copy(m_st);
     }
 };
 
@@ -262,7 +266,7 @@ public:
     
     // the method of lar solver to use
     simplex_strategy_enum simplex_strategy() const { return m_simplex_strategy; }
-    void set_simplex_strategy(simplex_strategy_enum s) { m_simplex_strategy = s; }
+    simplex_strategy_enum & simplex_strategy()  { return m_simplex_strategy; }
     bool use_tableau_rows() const { return m_simplex_strategy == simplex_strategy_enum::tableau_rows; }
     
 #ifdef Z3DEBUG

@@ -252,6 +252,12 @@ namespace arith {
                     st.to_ensure_var().push_back(n1);
                     st.to_ensure_var().push_back(n2);
                 }
+                else if (a.is_band(n) || a.is_shl(n) || a.is_ashr(n) || a.is_lshr(n)) {
+                    m_bv_terms.push_back(to_app(n));
+                    ctx.push(push_back_vector(m_bv_terms));
+                    mk_bv_axiom(to_app(n));
+                    ensure_arg_vars(to_app(n));
+                }
                 else if (!a.is_div0(n) && !a.is_mod0(n) && !a.is_idiv0(n) && !a.is_rem0(n) && !a.is_power0(n)) {
                     found_unsupported(n);
                     ensure_arg_vars(to_app(n));
@@ -291,6 +297,13 @@ namespace arith {
         internalize_term(n->get_arg(1)->get_expr());
     }
 
+    expr* solver::mk_sub(expr* x, expr* y) {
+        rational r;
+        if (a.is_numeral(y, r) && r == 0)
+            return x;
+        return a.mk_sub(x, y);
+    }
+
     bool solver::internalize_atom(expr* atom) {
         TRACE("arith", tout << mk_pp(atom, m) << "\n";);
         expr* n1, *n2;
@@ -319,26 +332,26 @@ namespace arith {
             k = lp_api::upper_t;
         }
         else if (a.is_le(atom, n1, n2)) {
-            expr_ref n3(a.mk_sub(n1, n2), m);
+            expr_ref n3(mk_sub(n1, n2), m);
             v = internalize_def(n3);
             k = lp_api::upper_t;
             r = 0;
         }
         else if (a.is_ge(atom, n1, n2)) {
-            expr_ref n3(a.mk_sub(n1, n2), m);
+            expr_ref n3(mk_sub(n1, n2), m);
             v = internalize_def(n3);
             k = lp_api::lower_t;
             r = 0;
         }
         else if (a.is_lt(atom, n1, n2)) {
-            expr_ref n3(a.mk_sub(n1, n2), m);
+            expr_ref n3(mk_sub(n1, n2), m);
             v = internalize_def(n3);
             k = lp_api::lower_t;
             r = 0;
             lit.neg();
         }
-        else if (a.is_gt(atom, n1, n2)) {
-            expr_ref n3(a.mk_sub(n1, n2), m);
+        else if (a.is_gt(atom, n1, n2)) {            
+            expr_ref n3(mk_sub(n1, n2), m);
             v = internalize_def(n3);
             k = lp_api::upper_t;
             r = 0;
@@ -459,7 +472,7 @@ namespace arith {
         bool _has_var = has_var(t);
         mk_enode(t);
         theory_var v = mk_evar(t);
-
+                                      
         if (!_has_var) {
             svector<lpvar> vars;
             for (expr* n : *t) {
@@ -494,11 +507,11 @@ namespace arith {
             }
             else {
                 vi = lp().add_term(m_left_side, v);
-                SASSERT(lp::tv::is_term(vi));
+                SASSERT(lp().column_has_term(vi));
                 TRACE("arith_verbose", 
                       tout << "v" << v << " := " << mk_pp(term, m) 
                       << " slack: " << vi << " scopes: " << m_scopes.size() << "\n";
-                      lp().print_term(lp().get_term(lp::tv::raw(vi)), tout) << "\n";);
+                      lp().print_term(lp().get_term(vi), tout) << "\n";);
             }
         }
         return v;
@@ -528,8 +541,6 @@ namespace arith {
             rational const& r = m_columns[var];
             if (!r.is_zero()) {
                 auto vi = register_theory_var_in_lar_solver(var);
-                if (lp::tv::is_term(vi))
-                    vi = lp().map_term_index_to_column_index(vi);
                 m_left_side.push_back(std::make_pair(r, vi));
                 m_columns[var].reset();
             }
@@ -612,9 +623,6 @@ namespace arith {
         return lp().external_to_local(v);
     }
 
-    lp::tv solver::get_tv(theory_var v) const {
-        return lp::tv::raw(get_lpvar(v));
-    }
 
     /**
        \brief We must redefine this method, because theory of arithmetic contains

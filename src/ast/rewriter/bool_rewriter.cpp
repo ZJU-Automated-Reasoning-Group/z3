@@ -34,7 +34,6 @@ void bool_rewriter::updt_params(params_ref const & _p) {
     m_blast_distinct       = p.blast_distinct();
     m_blast_distinct_threshold = p.blast_distinct_threshold();
     m_ite_extra_rules      = p.ite_extra_rules();
-    m_hoist.set_elim_and(m_elim_and);
 }
 
 void bool_rewriter::get_param_descrs(param_descrs & r) {
@@ -270,28 +269,6 @@ br_status bool_rewriter::mk_nflat_or_core(unsigned num_args, expr * const * args
                 return BR_DONE;
         }
 
-#if 1
-        br_status st;
-        expr_ref r(m());
-        st = m_hoist.mk_or(buffer.size(), buffer.data(), r);
-        if (st != BR_FAILED) {
-            m_counts1.reserve(m().get_num_asts() + 1);
-            m_counts2.reserve(m().get_num_asts() + 1);
-            get_num_internal_exprs(m_counts1, m_todo1, r);
-            for (unsigned i = 0; i < num_args; ++i)
-                get_num_internal_exprs(m_counts2, m_todo2, args[i]);
-            unsigned count1 = count_internal_nodes(m_counts1, m_todo1);
-            unsigned count2 = count_internal_nodes(m_counts2, m_todo2);
-            if (count1 > count2)
-                st = BR_FAILED;
-        }
-        if (st != BR_FAILED)
-            result = r;
-        if (st == BR_DONE)
-            return BR_REWRITE1;
-        if (st != BR_FAILED)
-            return st;
-#endif
         if (s) {
             if (m_sort_disjunctions) {
                 ast_lt lt;
@@ -568,16 +545,9 @@ bool bool_rewriter::local_ctx_simp(unsigned num_args, expr * const * args, expr_
     bool simp     = false;
     bool modified = false;
     bool forward  = true;
-    unsigned rounds = 0;
     expr* narg;
 
     while (true) {
-        rounds++;
-#if 0
-        if (rounds > 10)
-            verbose_stream() << "rounds: " << rounds << "\n";
-#endif
-
 
 #define PROCESS_ARG()                                                                           \
         {                                                                                       \
@@ -722,6 +692,22 @@ app* bool_rewriter::mk_eq(expr* lhs, expr* rhs) {
     return m().mk_eq(lhs, rhs);
 }
 
+bool bool_rewriter::try_ite_eq(expr* lhs, expr* rhs, expr_ref& r) {
+    expr* c, *t, *e;
+    if (!m().is_ite(lhs, c, t, e))
+        return false;
+    if (m().are_equal(t, rhs) && m().are_distinct(e, rhs)) {
+        r = c;
+        return true;
+    }
+    if (m().are_equal(e, rhs) && m().are_distinct(t, rhs)) {
+        r = m().mk_not(c);
+        return true;
+    }
+    return false;
+}
+
+
 br_status bool_rewriter::mk_eq_core(expr * lhs, expr * rhs, expr_ref & result) {
     if (m().are_equal(lhs, rhs)) {
         result = m().mk_true();
@@ -736,6 +722,12 @@ br_status bool_rewriter::mk_eq_core(expr * lhs, expr * rhs, expr_ref & result) {
     br_status r = BR_FAILED;
     
 
+    if (try_ite_eq(lhs, rhs, result))
+        return BR_REWRITE1;
+
+    if (try_ite_eq(rhs, lhs, result))
+        return BR_REWRITE1;
+    
     if (m_ite_extra_rules) {
         if (m().is_ite(lhs) && m().is_value(rhs)) {
             r = try_ite_value(to_app(lhs), to_app(rhs), result);

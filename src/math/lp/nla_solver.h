@@ -38,6 +38,7 @@ namespace nla {
         bool need_check();
         lbool check();
         void propagate();
+        void simplify() { m_core->simplify(); }
         lbool check_power(lpvar r, lpvar x, lpvar y);
         bool is_monic_var(lpvar) const;
         bool influences_nl_var(lpvar) const;
@@ -45,12 +46,13 @@ namespace nla {
         bool use_nra_model() const;
         core& get_core();
         nlsat::anum_manager& am();
-        nlsat::anum const& am_value(lp::var_index v) const;
-        void collect_statistics(::statistics & st);
+        nlsat::anum const& am_value(lp::lpvar v) const;
+        scoped_anum& tmp1();
+        scoped_anum& tmp2();
         vector<nla::lemma> const& lemmas() const;
         vector<nla::ineq> const& literals() const;
-        vector<nla::fixed_equality> const& fixed_equalities() const;
-        vector<nla::equality> const& equalities() const;
-        bool check_feasible() const { return m_core->check_feasible(); }
+        vector<lp::fixed_equality> const& fixed_equalities() const;
+        vector<lp::equality> const& equalities() const;
+        bool should_check_feasible() const { return m_core->should_check_feasible(); }
     };
 }

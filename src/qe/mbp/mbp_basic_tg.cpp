@@ -69,6 +69,7 @@ struct mbp_basic_tg::impl {
         m_tg.get_terms(terms, false);
         for (expr *term : terms) {
             if (is_seen(term)) continue;
+            TRACE("mbp_tg", tout << "Processing " << expr_ref(term, m) << "\n";);
             if (m.is_ite(term, c, th, el) && should_split(c)) {
                 mark_seen(term);
                 progress = true;
@@ -100,7 +101,7 @@ struct mbp_basic_tg::impl {
                 bool is_or = m.is_or(term);
                 app *c = to_app(term);
                 bool t = is_or ? any_of(*c, is_true) : all_of(*c, is_true);
-                bool f = is_or ? all_of(*c, is_false) : all_of(*c, is_false);
+                bool f = is_or ? all_of(*c, is_false) : any_of(*c, is_false);
                 if (t || f) {
                     mark_seen(term);
                     progress = true;

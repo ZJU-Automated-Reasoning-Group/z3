@@ -90,15 +90,19 @@ namespace recfun {
         return r;
     }
 
-    bool def::contains_def(util& u, expr * e) {
+    bool util::contains_def(expr * e) {
         struct def_find_p : public i_expr_pred {
             util& u;
             def_find_p(util& u): u(u) {}
             bool operator()(expr* a) override { return is_app(a) && u.is_defined(to_app(a)->get_decl()); }
         };
-        def_find_p p(u);
-        check_pred cp(p, m, false);
+        def_find_p p(*this);
+        check_pred cp(p, m(), false);
         return cp(e);
+    }
+
+    bool def::contains_def(util& u, expr * e) {
+        return u.contains_def(e);
     }
 
     // does `e` contain any `ite` construct?
@@ -291,6 +295,9 @@ namespace recfun {
 
                     expr* cond = nullptr, *th = nullptr, *el = nullptr; 
                     if (m.is_ite(e, cond, th, el) && contains_def(u, cond)) {
+                        // skip
+                    }
+                    if (m.is_ite(e, cond, th, el) && !contains_def(u, th) && !contains_def(u, el)) {
                         // skip
                     }
                     else if (m.is_ite(e)) {
@@ -558,15 +565,16 @@ namespace recfun {
 
         expr_ref plugin::redirect_ite(replace& subst, unsigned n, var * const* vars, expr * e) {
             expr_ref result(e, m());
+            util u(m());
             while (true) {
                 obj_map<expr, unsigned> scores;
                 compute_scores(result, scores);
                 unsigned max_score = 0;
                 expr* max_expr = nullptr;
-                for (auto const& kv : scores) {
-                    if (m().is_ite(kv.m_key) && kv.m_value > max_score) {
-                        max_expr = kv.m_key;
-                        max_score = kv.m_value;
+                for (auto const& [k, v] : scores) {
+                    if (m().is_ite(k) && v > max_score && u.contains_def(k)) {
+                        max_expr = k;
+                        max_score = v;
                     }
                 }
                 if (max_score <= 4) 
@@ -601,15 +609,6 @@ namespace recfun {
         m_def = &u.get_def(d);
         m_args.append(n->get_num_args(), n->get_args());
     }
-
-    case_expansion::case_expansion(case_expansion const & from)
-        : m_lhs(from.m_lhs),
-          m_def(from.m_def),
-          m_args(from.m_args) {}
-    case_expansion::case_expansion(case_expansion && from)
-        : m_lhs(from.m_lhs),
-          m_def(from.m_def),
-          m_args(std::move(from.m_args)) {}
 
     std::ostream& case_expansion::display(std::ostream & out) const {
         return out << "case_exp(" << m_lhs << ")";

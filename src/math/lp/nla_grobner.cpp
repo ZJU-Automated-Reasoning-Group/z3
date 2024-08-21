@@ -50,30 +50,29 @@ namespace nla {
             return;
         }
         
-
         lp_settings().stats().m_grobner_calls++;
         find_nl_cluster();        
-        configure();
+        if (!configure())
+            return;
         m_solver.saturate();
 
         if (m_delay_base > 0)
             --m_delay_base;
         
-        if (is_conflicting())
-            return;
-
         try {
-            if (propagate_bounds())
+
+            if (is_conflicting())
                 return;
 
             if (propagate_eqs())
                 return;
-
+            
             if (propagate_factorization())
                 return;
-
-            if (false && propagate_linear_equations())
+            
+            if (propagate_linear_equations())
                 return;
+            
         }
         catch (...) {
             
@@ -81,25 +80,25 @@ namespace nla {
 
         // DEBUG_CODE(for (auto e : m_solver.equations()) check_missing_propagation(*e););
 
+        // for (auto e : m_solver.equations()) check_missing_propagation(*e);
+        
         ++m_delay_base;
         if (m_quota > 0)
            --m_quota;
 
         IF_VERBOSE(3, verbose_stream() << "grobner miss, quota " << m_quota << "\n");
         IF_VERBOSE(4, diagnose_pdd_miss(verbose_stream()));
+    }
 
-
-#if 0
-        // diagnostics: did we miss something
-        vector<dd::pdd> eqs;
-        for (auto eq : m_solver.equations())
-            eqs.push_back(eq->poly());
-        c().m_nra.check(eqs);
-#endif
+    dd::solver::equation_vector const& grobner::core_equations(bool all_eqs) {
+        flet<bool> _add_all(m_add_all_eqs, all_eqs);
+        find_nl_cluster();        
+        if (!configure()) 
+            throw dd::pdd_manager::mem_out();
+        return m_solver.equations();
     }
 
     bool grobner::is_conflicting() {
-        bool is_conflict = false;
         for (auto eq : m_solver.equations()) {
             if (is_conflicting(*eq)) {
                 lp_settings().stats().m_grobner_conflicts++;
@@ -111,17 +110,9 @@ namespace nla {
         return false;
     }
 
-    bool grobner::propagate_bounds() {
-        unsigned changed = 0;
-        for (auto eq : m_solver.equations()) 
-            if (propagate_bounds(*eq) && ++changed >= m_solver.number_of_conflicts_to_report())
-                return true;
-        return changed > 0;
-    }
-
     bool grobner::propagate_eqs() {
         unsigned changed = 0;
-        for (auto eq : m_solver.equations())
+        for (auto eq : m_solver.equations()) 
             if (propagate_fixed(*eq) && ++changed >= m_solver.number_of_conflicts_to_report())
                 return true;
         return changed > 0;
@@ -129,7 +120,7 @@ namespace nla {
 
     bool grobner::propagate_factorization() {
         unsigned changed = 0;
-        for (auto eq : m_solver.equations())
+        for (auto eq : m_solver.equations()) 
             if (propagate_factorization(*eq) && ++changed >= m_solver.number_of_conflicts_to_report())
                 return true;
         return changed > 0;
@@ -165,19 +156,12 @@ namespace nla {
             rational d = lcm(denominator(a), denominator(b));
             a *= d;
             b *= d;
-#if 0
-            c().lra.update_column_type_and_bound(v, lp::lconstraint_kind::EQ, b/a, eq.dep()); 
-            lp::explanation exp;
-            explain(eq, exp);
-            c().add_fixed_equality(c().lra.column_to_reported_index(v), b/a, exp);       
-#else
             ineq new_eq(term(a, v), llc::EQ, b);
             if (c().ineq_holds(new_eq))
                 return false;
             new_lemma lemma(c(), "pdd-eq");
             add_dependencies(lemma, eq);
             lemma |= new_eq;
-#endif
             return true;
         }
 
@@ -198,14 +182,22 @@ namespace nla {
         // IF_VERBOSE(0, verbose_stream() << "factored " << q << " : " << vars << "\n");
 
         term t;
+        rational lc(1);
+        auto ql = q;
+        while (!ql.is_val()) {
+            lc = lcm(lc, denominator(ql.hi().val()));
+            ql = ql.lo();
+        }
+        lc = lcm(denominator(ql.val()), lc);
+
         while (!q.is_val()) {
-            t.add_monomial(q.hi().val(), q.var());
+            t.add_monomial(lc*q.hi().val(), q.var());
             q = q.lo();
         }
         vector<ineq> ineqs;
         for (auto v : vars)
             ineqs.push_back(ineq(v, llc::EQ, rational::zero()));
-        ineqs.push_back(ineq(t, llc::EQ, -q.val()));
+        ineqs.push_back(ineq(t, llc::EQ, -lc*q.val()));
         for (auto const& i : ineqs)
             if (c().ineq_holds(i))
                 return false;
@@ -218,7 +210,7 @@ namespace nla {
         return true;
     }
 
-    void grobner::explain(const dd::solver::equation& eq, lp::explanation& exp) {
+    void grobner::explain(dd::solver::equation const& eq, lp::explanation& exp) {
         u_dependency_manager dm;
         vector<unsigned, false> lv;
         dm.linearize(eq.dep(), lv);
@@ -233,7 +225,7 @@ namespace nla {
         lemma &= exp;
     }
 
-    void grobner::configure() {
+    bool grobner::configure() {
         m_solver.reset();
         try {
             set_level2var();
@@ -251,12 +243,12 @@ namespace nla {
                     add_fixed_monic(j);
             }
         }
-        catch (...) {
+        catch (dd::pdd_manager::mem_out) {
             IF_VERBOSE(2, verbose_stream() << "pdd throw\n");
-            return;
+            return false;
         }
         TRACE("grobner", m_solver.display(tout));
-    
+
 #if 0
         IF_VERBOSE(2, m_pdd_grobner.display(verbose_stream()));
         dd::pdd_eval eval(m_pdd_manager);
@@ -280,6 +272,8 @@ namespace nla {
         m_solver.set(cfg);
         m_solver.adjust_cfg();
         m_pdd_manager.set_max_num_nodes(10000); // or something proportional to the number of initial nodes.
+
+        return true;
     }
 
     std::ostream& grobner::diagnose_pdd_miss(std::ostream& out) {
@@ -367,65 +361,54 @@ namespace nla {
         }
     }
 
-    bool grobner::propagate_bounds(const dd::solver::equation& e) {
-        return false;
-        // TODO
-        auto& di = c().m_intervals.get_dep_intervals();
-        dd::pdd_interval eval(di);
-        eval.var2interval() = [this](lpvar j, bool deps, scoped_dep_interval& a) {
-            if (deps) c().m_intervals.set_var_interval<dd::w_dep::with_deps>(j, a);
-            else c().m_intervals.set_var_interval<dd::w_dep::without_deps>(j, a);
-        };
-        scoped_dep_interval i(di), i_wd(di);
-        eval.get_interval<dd::w_dep::without_deps>(e.poly(), i);
-        return false;
-    }
-
     bool grobner::propagate_linear_equations() {
         unsigned changed = 0;
+        m_mon2var.clear();
+        for (auto const& m : c().emons()) 
+            m_mon2var[m.vars()] = m.var();
+        
         for (auto eq : m_solver.equations()) 
-            if (propagate_linear_equations(*eq) && ++changed >= m_solver.number_of_conflicts_to_report())
-                return true;
+            if (propagate_linear_equations(*eq))
+                ++changed;
         return changed > 0;
     }
-    
+        
     bool grobner::propagate_linear_equations(dd::solver::equation const& e) {
         if (equation_is_true(e))
             return false;
-        if (!e.poly().is_linear())
+        rational value(0);
+        for (auto const& [coeff, vars] : e.poly()) {
+            if (vars.empty())
+                value += coeff;
+            else if (vars.size() == 1)
+                value += coeff*val(vars[0]);
+            else if (m_mon2var.find(vars) == m_mon2var.end())
+                return false;
+            else
+                value += coeff*val(m_mon2var.find(vars)->second);
+        }
+        if (value == 0)
             return false;
 
         rational lc(1);
-        for (auto const& [coeff, vars] : e.poly())
+        for (auto const& [coeff, vars] : e.poly()) 
             lc = lcm(denominator(coeff), lc);
-        auto q = e.poly();
+        
+        vector<std::pair<lp::mpq, unsigned>> coeffs;
+        rational offset(0);
 
-        
-#if 1
-        vector<std::pair<lp::mpq, unsigned>> coeffs;        
-        while (!q.is_val()) {
-            coeffs.push_back({lc*q.hi().val(), q.var()});
-            q = q.lo();
-        }
+        for (auto const& [coeff, vars] : e.poly()) {
+            if (vars.size() == 0)
+                offset -= lc*coeff;
+            else if (vars.size() == 1)
+                coeffs.push_back({lc*coeff, vars[0]});
+            else
+                coeffs.push_back({lc*coeff, m_mon2var.find(vars)->second});
+        }                    
 
-        lp::lpvar term_index = c().lra.add_term(coeffs, UINT_MAX);
-        term_index = c().lra.map_term_index_to_column_index(term_index);
-        c().lra.update_column_type_and_bound(term_index, lp::lconstraint_kind::EQ, -lc*q.val(), e.dep());
-        c().m_check_feasible = true;
-#else
-        
-        new_lemma lemma(m_core,"nla-linear");
-        lp::explanation exp;
-        explain(e, exp);
-        lemma &= exp;
-        term t;
-        while (!q.is_val()) {
-            t.add_monomial(lc*q.hi().val(), q.var());
-            q = q.lo();
-        }
-        lemma |= ineq(t, llc::EQ, -lc*q.val());
-#endif
-        
+        lp::lpvar j = c().lra.add_term(coeffs, UINT_MAX);
+        c().lra.update_column_type_and_bound(j, lp::lconstraint_kind::EQ, offset, e.dep());
+        c().m_check_feasible = true; 
         return true;
     }
 
@@ -450,11 +433,16 @@ namespace nla {
                 continue;
             m_rows.insert(row);
             unsigned k = lra.get_base_column_in_row(row);
-            if (lra.column_is_free(k) && k != j)
+            // grobner bassis does not know about integer constraints
+            if (lra.column_is_free(k) && !m_add_all_eqs && k != j)
+                continue;
+            // a free column over the reals can be assigned
+            if (lra.column_is_free(k) && k != j && !lra.var_is_int(k)) 
                 continue;
             CTRACE("grobner", matrix.m_rows[row].size() > c().params().arith_nl_grobner_row_length_limit(),
-                   tout << "ignore the row " << row << " with the size " << matrix.m_rows[row].size() << "\n";); 
-            if (matrix.m_rows[row].size() > c().params().arith_nl_horner_row_length_limit())
+                   tout << "ignore the row " << row << " with the size " << matrix.m_rows[row].size() << "\n";);
+            // limits overhead of grobner equations, unless this is for extracting a complete COI of the non-satisfied subset.
+            if (!m_add_all_eqs && matrix.m_rows[row].size() > c().params().arith_nl_horner_row_length_limit())
                 continue;
             for (auto& rc : matrix.m_rows[row]) 
                 add_var_and_its_factors_to_q_and_collect_new_rows(rc.var(), q);
@@ -580,7 +568,6 @@ namespace nla {
         add_eq(sum, dep);
     }
 
-
     void grobner::find_nl_cluster() {        
         prepare_rows_and_active_vars();
         svector<lpvar> q;
@@ -659,7 +646,6 @@ namespace nla {
         nex_creator& nc = m_nex_creator;
         nc.pop(0);
         nex_creator::sum_factory sum(nc);
-        unsigned row_index = 0;
         u_map<nex_var*> var2nex;
         for (auto v : eq.poly().free_vars()) 
             var2nex.insert(v, nc.mk_var(v));
@@ -690,12 +676,11 @@ namespace nla {
 
         auto dep = eq.dep();
         cross_nested cn(
-            [this, dep](const nex* n) { bool r = c().m_intervals.check_nex(n, dep); TRACE("grobner", tout << "check " << r << " " << *n << "\n"); return r; },
+            [this, dep](const nex* n) { return c().m_intervals.check_nex(n, dep);  },
             [this](unsigned j)   { return c().var_is_fixed(j); },
             [this]() { return c().random(); }, nc);
         cn.run(to_sum(e));
         bool ret = cn.done();
-        TRACE("grobner", tout << "Horner " << ret << " " << eq.poly() << "\n");
         return ret;
     }
 
@@ -714,10 +699,12 @@ namespace nla {
     void grobner::check_missing_propagation(const dd::solver::equation& e) { 
         bool is_confl = is_nla_conflict(e);
         CTRACE("grobner", is_confl, m_solver.display(tout << "missed conflict ", e););
-        if (is_confl) 
+        if (is_confl) {
+            IF_VERBOSE(2, verbose_stream() << "missed conflict\n");
             return;
-        lbool r = c().m_nra.check_tight(e.poly());
-        CTRACE("grobner", r == l_false, m_solver.display(tout << "tight equality ", e););
+        }
+        //lbool r = c().m_nra.check_tight(e.poly());
+        //CTRACE("grobner", r == l_false, m_solver.display(tout << "tight equality ", e););
     }
 
 

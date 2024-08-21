@@ -180,6 +180,8 @@ namespace lp {
         m_ex = e;
         m_ex->clear();
         m_upper = false;
+        m_cut_vars.reset();
+        
         lia_move r = lia_move::undef;
 
         if (m_gcd.should_apply())
@@ -193,9 +195,13 @@ namespace lp {
         ++m_number_of_calls;
         if (r == lia_move::undef && m_patcher.should_apply()) r = m_patcher();
         if (r == lia_move::undef && should_find_cube()) r = int_cube(*this)();
+        if (r == lia_move::undef) lra.move_non_basic_columns_to_bounds();
         if (r == lia_move::undef && should_hnf_cut()) r = hnf_cut();
-        if (r == lia_move::undef && should_gomory_cut()) r = gomory(*this)();
+
+        if (r == lia_move::undef && should_gomory_cut()) r = gomory(*this).get_gomory_cuts(2);
+
         if (r == lia_move::undef) r = int_branch(*this)();
+        if (settings().get_cancel_flag()) r = lia_move::undef;        
         return r;
     }
 
@@ -222,7 +228,7 @@ namespace lp {
 
     bool int_solver::cut_indices_are_columns() const {
         for (lar_term::ival p : m_t) {
-            if (p.column().index() >= lra.A_r().column_count())
+            if (p.j() >= lra.A_r().column_count())
                 return false;
         }
         return true;
@@ -236,6 +242,7 @@ namespace lp {
         CTRACE("current_solution_is_inf_on_cut", v * sign <= impq(m_k) * sign,
                tout << "m_upper = " << m_upper << std::endl;
                tout << "v = " << v << ", k = " << m_k << std::endl;
+               tout << "term:";lra.print_term(m_t, tout) << "\n";
                );
         return v * sign > impq(m_k) * sign;
     }
@@ -264,7 +271,7 @@ namespace lp {
         return lra.settings();
     }
 
-    bool int_solver::column_is_int(column_index const& j) const {
+    bool int_solver::column_is_int(lpvar j) const {
         return lra.column_is_int(j);
     }
 
@@ -289,7 +296,7 @@ namespace lp {
     }
 
     bool int_solver::is_term(unsigned j) const {
-        return lra.column_corresponds_to_term(j);
+        return lra.column_has_term(j);
     }
 
     unsigned int_solver::column_count() const  {
@@ -623,65 +630,205 @@ namespace lp {
 
 
     int int_solver::select_int_infeasible_var() {
-        int result = -1;
+        int r_small_box = -1;
+        int r_small_value = -1;
+        int r_any_value = -1;
+        unsigned n_small_box = 1;
+        unsigned n_small_value = 1;
+        unsigned n_any_value = 1;
         mpq range;
         mpq new_range;
         mpq small_value(1024);
-        unsigned n = 0;
         lar_core_solver & lcs = lra.m_mpq_lar_core_solver;
-        unsigned prev_usage = 0; // to quiet down the compile
+        unsigned prev_usage = 0;
 
-        enum state { small_box, is_small_value,  any_value, not_found };
-        state st = not_found;
-
+        auto add_column = [&](bool improved, int& result, unsigned& n, unsigned j) {
+            if (result == -1)
+                result = j;
+            else if (improved && ((random() % (++n)) == 0))
+                result = j;            
+        };
+        
         for (unsigned j : lra.r_basis()) {
             if (!column_is_int_inf(j))
                 continue;
+             if (m_cut_vars.contains(j))
+                continue;
+
+            SASSERT(!is_fixed(j));
+
             unsigned usage = lra.usage_in_terms(j);
             if (is_boxed(j) && (new_range = lcs.m_r_upper_bounds()[j].x - lcs.m_r_lower_bounds()[j].x - rational(2*usage)) <= small_value) {
-                SASSERT(!is_fixed(j));
-                if (st != small_box) {
-                    n = 0;
-                    st = small_box;
-                }
-                if (n == 0 || new_range < range) {
-                    result = j;
+
+                bool improved = new_range <= range || r_small_box == -1;
+                if (improved)
                     range = new_range;
-                    n = 1;
-                }
-                else if (new_range == range && (random() % (++n) == 0)) {
-                    result = j;
-                }
+                add_column(improved, r_small_box, n_small_box, j);
                 continue;
             }
-            if (st == small_box)
-                continue;
             impq const& value = get_value(j);
             if (abs(value.x) < small_value ||
                 (has_upper(j) && small_value > upper_bound(j).x - value.x) ||
                 (has_lower(j) && small_value > value.x - lower_bound(j).x)) {
-                if (st != is_small_value) {
-                    n = 0;
-                    st = is_small_value;
-                }
-                if (random() % (++n) == 0)
-                    result = j;
-            }
-            if (st == is_small_value)
+                TRACE("int_solver", tout << "small j" << j << "\n");
+                add_column(true, r_small_value, n_small_value, j);
                 continue;
-            SASSERT(st == not_found || st == any_value);
-            st = any_value;
-            if (n == 0 || usage > prev_usage) {
-                result = j;
+            }
+            TRACE("int_solver", tout << "any j" << j << "\n");
+            add_column(usage >= prev_usage, r_any_value, n_any_value, j);
+            if (usage > prev_usage) 
                 prev_usage = usage;
-                n = 1;
-            } 
-            else if (usage > 0 && usage == prev_usage && (random() % (++n) == 0)) 
-                result = j;
         }
-    
-        return result;
+
+        if (r_small_box != -1 && (random() % 3 != 0))
+            return r_small_box;
+        if (r_small_value != -1 && (random() % 3) != 0)
+            return r_small_value;
+        if (r_any_value != -1)
+            return r_any_value;
+        if (r_small_box != -1)
+            return r_small_box;
+        return r_small_value;
     }
 
+    void int_solver::simplify(std::function<bool(unsigned)>& is_root) {
+        return;
 
+#if 0
+
+        // in-processing simplification can go here, such as bounds improvements.
+
+        if (!lra.is_feasible()) {
+            lra.find_feasible_solution();
+            if (!lra.is_feasible())
+                return;
+        }
+
+        
+        lp::explanation exp;
+        m_ex = &exp;
+        m_t.clear();
+        m_k.reset();
+
+        if (has_inf_int()) 
+            local_gomory(5);            
+
+        stopwatch sw;
+        explanation exp1, exp2;
+
+        // 
+        // identify equalities
+        //
+
+        m_equalities.reset();
+        map<rational, unsigned_vector, rational::hash_proc, rational::eq_proc> value2roots;
+
+        vector<std::pair<lp::mpq, unsigned>> coeffs;        
+        coeffs.push_back({-rational::one(), 0});
+        coeffs.push_back({rational::one(), 0});
+
+        num_checks = 0;
+
+        // make sure values are sampled with respect to the same state of the Simplex.
+        vector<rational> values;
+        for (lpvar j = 0; j < lra.column_count(); ++j) 
+            values.push_back(get_value(j).x);
+
+        sw.reset();
+        sw.start();
+        start = random();
+        for (lpvar j0 = 0; j0 < lra.column_count(); ++j0) {
+            lpvar j = (j0 + start) % lra.column_count();
+            if (is_fixed(j))
+                continue;
+            if (!lra.column_is_int(j))
+                continue;
+            if (!is_root(j))
+                continue;
+            rational value = values[j];
+            if (!value2roots.contains(value)) {
+                unsigned_vector vec;
+                vec.push_back(j);
+                value2roots.insert(value, vec);
+                continue;
+            }
+            auto& roots = value2roots.find(value);
+            bool has_eq = false;
+            //
+            // Super inefficient check. There are better ways.
+            // 1. call into equality finder:
+            // the cheap equality finder can also be used.
+            // 2. value sweeping:
+            // update partitions of values based on feasible tableaus
+            // instead of having just the values vector use the values 
+            // collected when the find_feasible_solution succeeds with
+            // a new assignment. 
+            // 3. a more expensive equality finder:
+            // use the tableau to extract equalities from tight rows.
+            // If x = y is implied, there is a set of rows that link x and y
+            // and such that the variables are at their bounds.
+            // 4. retain information between calls:
+            // If simplification is invoked at the same backtracking level (or above)
+            // form the previous call and it is established that x <= y (but not x == y), then no need to
+            // recheck the inequality x <= y.
+            for (auto k : roots) {
+                bool le = false, ge = false;
+                u_dependency* dep = nullptr;
+                lra.push();
+                coeffs[0].second = j;
+                coeffs[1].second = k;
+                lp::lpvar term_index = lra.add_term(coeffs, UINT_MAX);
+                term_index = lra.map_term_index_to_column_index(term_index);
+                lra.push();
+                lra.update_column_type_and_bound(term_index, lp::lconstraint_kind::GE, mpq(1), nullptr);
+                lra.find_feasible_solution();
+                if (!lra.is_feasible()) {
+                    lra.get_infeasibility_explanation(exp1);
+                    le = true;
+                }
+                lra.pop(1);
+                ++num_checks;
+                if (le) {
+                    lra.push();
+                    lra.update_column_type_and_bound(term_index, lp::lconstraint_kind::LE, mpq(-1), nullptr);
+                    lra.find_feasible_solution();
+                    if (!lra.is_feasible()) {
+                        lra.get_infeasibility_explanation(exp2);
+                        exp1.add_expl(exp2);
+                        ge = true;           
+                    }                             
+                    lra.pop(1);
+                    ++num_checks;
+                }
+                lra.pop(1);
+                if (le && ge) {
+                    has_eq = true;
+                    m_equalities.push_back({j, k, exp1});
+                    break;
+                }
+                // artificial throttle.
+                if (num_checks > 10000)
+                    break;
+            }
+            if (!has_eq) 
+                roots.push_back(j);
+
+            // artificial throttle.
+            if (num_checks > 10000)
+                break;
+        }
+
+        sw.stop();
+        std::cout << "equalities " << m_equalities.size() << " num checks " << num_checks << " time: " << sw.get_seconds() << "\n";
+        std::cout.flush();
+
+        //
+        // Cuts? Eg. for 0-1 variables or bounded integers?
+        // 
+
+#endif
+    }
+    
+    
+    
 }

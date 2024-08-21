@@ -85,8 +85,10 @@ namespace qe {
             if (m_flevel.find(a->get_decl(), lvl)) {
                 lvl0.merge(lvl);
             }
-            for (unsigned i = 0; i < a->get_num_args(); ++i) {
-                app* arg = to_app(a->get_arg(i));
+            for (expr* f : *a) {
+                if (!is_app(f))
+                    throw tactic_exception("atom is non-ground");
+                app* arg = to_app(f);
                 if (m_elevel.find(arg, lvl)) {
                     lvl0.merge(lvl);
                 }
@@ -265,13 +267,9 @@ namespace qe {
                 continue;
             }
             
-            unsigned sz = a->get_num_args();
-            for (unsigned i = 0; i < sz; ++i) {
-                expr* f = a->get_arg(i);
-                if (!mark.is_marked(f)) {
-                    todo.push_back(f);
-                }
-            } 
+            for (expr* f : *a)
+                if (!mark.is_marked(f))
+                    todo.push_back(f);                            
             
             bool is_boolop = 
                 (a->get_family_id() == m.get_basic_family_id()) &&
@@ -324,8 +322,8 @@ namespace qe {
             unsigned sz = a->get_num_args();
             bool diff = false;
             args.reset();
-            for (unsigned i = 0; i < sz; ++i) {
-                expr* f = a->get_arg(i), *f1;
+            for (expr* f : *a) {
+                expr *f1;
                 if (cache.find(f, f1)) {
                     args.push_back(f1);
                     diff |= f != f1;
@@ -413,8 +411,8 @@ namespace qe {
             unsigned sz = a->get_num_args();
             args.reset();
             bool diff = false;
-            for (unsigned i = 0; i < sz; ++i) {
-                expr* f = a->get_arg(i), *f1;
+            for (expr* f : *a) {
+                expr *f1;
                 if (cache.find(f, f1)) {
                     args.push_back(f1);
                     diff |= f != f1;
@@ -551,6 +549,7 @@ namespace qe {
 
         void init() {
            m_solver = mk_smt2_solver(m, m_params, symbol::null);
+           m_last_assert = nullptr;
         }
         void collect_statistics(statistics & st) const {
             if (m_solver) 
@@ -633,7 +632,7 @@ namespace qe {
            \brief check alternating satisfiability.
            Even levels are existential, odd levels are universal.
         */
-        lbool check_sat() {        
+        lbool check_sat() {
             while (true) {
                 ++m_stats.m_num_rounds;
                 IF_VERBOSE(1, verbose_stream() << "(check-qsat level: " << m_level << " round: " << m_stats.m_num_rounds << ")\n";);
@@ -1015,14 +1014,13 @@ namespace qe {
                 case AST_APP: {
                     app* a = to_app(e);
                     expr_ref_vector args(m);
-                    unsigned num_args = a->get_num_args();
                     bool all_visited = true;
-                    for (unsigned i = 0; i < num_args; ++i) {
-                        if (visited.find(a->get_arg(i), r)) {
+                    for (expr* arg : *a) {
+                        if (visited.find(arg, r)) {
                             args.push_back(r);
                         }
                         else {
-                            todo.push_back(a->get_arg(i));
+                            todo.push_back(arg);
                             all_visited = false;
                         }
                     }

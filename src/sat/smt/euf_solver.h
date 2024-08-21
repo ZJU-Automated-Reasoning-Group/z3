@@ -154,6 +154,7 @@ namespace euf {
         svector<scope>                   m_scopes;
         scoped_ptr_vector<th_solver>     m_solvers;
         ptr_vector<th_solver>            m_id2solver;
+        
 
         constraint* m_conflict = nullptr;
         constraint* m_eq = nullptr;
@@ -173,6 +174,7 @@ namespace euf {
         symbol                           m_smt = symbol("smt");            
         expr_ref_vector                  m_clause;
         expr_ref_vector                  m_expr_args;
+        expr_ref_vector                  m_assertions;
 
 
         // internalization
@@ -229,12 +231,11 @@ namespace euf {
         void log_antecedents(literal l, literal_vector const& r, th_proof_hint* hint);
         void log_justification(literal l, th_explain const& jst);
         void log_justifications(literal l, unsigned explain_size, bool is_euf);
+        enode_pair get_justification_eq(size_t j);
         void log_rup(literal l, literal_vector const& r);
 
 
         eq_proof_hint* mk_hint(symbol const& th, literal lit);
-
-
 
         void init_proof();
         void on_clause(unsigned n, literal const* lits, sat::status st) override;
@@ -348,6 +349,7 @@ namespace euf {
         bool is_external(bool_var v) override;
         bool propagated(literal l, ext_constraint_idx idx) override;
         bool unit_propagate() override;
+        bool can_propagate() override;
         bool should_research(sat::literal_vector const& core) override;
         void add_assumptions(sat::literal_set& assumptions) override;
         bool tracking_assumptions() override;
@@ -362,11 +364,13 @@ namespace euf {
         bool propagate(enode* a, enode* b, th_explain* p) { return propagate(a, b, p->to_index()); }
         size_t* to_justification(sat::literal l) { return to_ptr(l); }
         void set_conflict(th_explain* p) { set_conflict(p->to_index()); }
+        bool inconsistent() const { return s().inconsistent() || m_egraph.inconsistent(); }
 
         bool set_root(literal l, literal r) override;
         void flush_roots() override;
 
         void get_antecedents(literal l, ext_justification_idx idx, literal_vector& r, bool probing) override;
+        void get_eq_antecedents(enode* a, enode* b, literal_vector& r);
         void get_th_antecedents(literal l, th_explain& jst, literal_vector& r, bool probing);
         void add_eq_antecedent(bool probing, enode* a, enode* b);
         void explain_diseq(ptr_vector<size_t>& ex, cc_justification* cc, enode* a, enode* b);
@@ -377,6 +381,7 @@ namespace euf {
         bool get_case_split(bool_var& var, lbool& phase) override;
         void asserted(literal l) override;
         sat::check_result check() override;
+        lbool resolve_conflict() override;
         void push() override;
         void pop(unsigned n) override;
         void user_push() override;
@@ -477,6 +482,10 @@ namespace euf {
         bool is_beta_redex(euf::enode* p, euf::enode* n) const;
         bool enable_ackerman_axioms(expr* n) const;
         bool is_fixed(euf::enode* n, expr_ref& val, sat::literal_vector& explain);
+
+        void add_assertion(expr* f);
+        expr_ref_vector const& get_assertions() { return m_assertions; }
+        model_ref get_sls_model();
 
         // relevancy
 

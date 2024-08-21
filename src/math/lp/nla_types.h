@@ -22,21 +22,9 @@ namespace nla {
     typedef lp::lconstraint_kind     llc;
     typedef lp::constraint_index     lpci;
     typedef lp::explanation          expl_set;
-    typedef lp::var_index            lpvar;
+    typedef lp::lpvar                    lpvar;
     const lpvar null_lpvar = UINT_MAX;
 
-    struct equality {
-        lp::lpvar i, j;
-        lp::explanation e;
-        equality(lp::lpvar i, lp::lpvar j, lp::explanation const& e):i(i),j(j),e(e) {}
-    };
-    
-    struct fixed_equality {
-        lp::lpvar v;
-        rational       k;
-        lp::explanation e;
-        fixed_equality(lp::lpvar v, rational const& k, lp::explanation const& e):v(v),k(k),e(e) {}
-    };
 
     
     inline int rat_sign(const rational& r) { return r.is_pos()? 1 : ( r.is_neg()? -1 : 0); }
