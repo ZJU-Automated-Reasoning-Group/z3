@@ -99,13 +99,15 @@ namespace smt {
         m_model_generator->set_context(this);
     }
 
-
     /**
        \brief retrieve flag for when cancelation is possible.
     */
 
     bool context::get_cancel_flag() {
-        return !m.limit().inc();
+        if (m.limit().inc())
+            return false;
+        m_last_search_failure = CANCELED;
+        return true;
     }
 
     void context::updt_params(params_ref const& p) {
@@ -1858,8 +1860,10 @@ namespace smt {
             lbool phase = l_undef;
             m_case_split_queue->next_case_split(var, phase);
             used_queue = true;
-            if (var == null_bool_var)
+            if (var == null_bool_var) {
+                push_trail(value_trail(m_has_case_split, false));
                 return false;
+            }
 
             TRACE_CODE({
                 static unsigned counter = 0;
@@ -3743,8 +3747,9 @@ namespace smt {
             VERIFY(!resolve_conflict());
             return l_false;
         }
-        if (get_cancel_flag())
+        if (get_cancel_flag()) 
             return l_undef;
+        
         timeit tt(get_verbosity_level() >= 100, "smt.stats");
         reset_model();
         SASSERT(at_search_level());
@@ -3957,10 +3962,8 @@ namespace smt {
             if (m_last_search_failure != OK)
                 return true;
 
-            if (get_cancel_flag()) {
-                m_last_search_failure = CANCELED;
-                return true;
-            }
+            if (get_cancel_flag()) 
+                return true;            
 
             if (m_progress_callback) {
                 m_progress_callback->fast_progress_sample();
@@ -3971,10 +3974,8 @@ namespace smt {
             }
         }
 
-        if (get_cancel_flag()) {
-            m_last_search_failure = CANCELED;
-            return true;
-        }
+        if (get_cancel_flag()) 
+            return true;        
 
         if (memory::above_high_watermark()) {
             m_last_search_failure = MEMOUT;
@@ -4642,6 +4643,9 @@ namespace smt {
     }
 
     bool context::has_case_splits() {
+        if (!m_has_case_split)
+            return false;
+        
         for (unsigned i = get_num_b_internalized(); i-- > 0; ) {
             if (is_relevant(i) && get_assignment(i) == l_undef)
                 return true;

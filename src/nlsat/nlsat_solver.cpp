@@ -463,7 +463,7 @@ namespace nlsat {
                 return max;
             }
             else {
-                return m_pm.degree(to_root_atom(a)->p(), a->max_var());
+                return m_pm.degree(to_root_atom(a)->p(), a->max_var());
             }
         }
 
@@ -634,7 +634,7 @@ namespace nlsat {
                     if (sign < 0)
                         k = atom::flip(k);
                     sign = 1;
-                    polynomial::manager::ineq_type t;
+                    polynomial::manager::ineq_type t = polynomial::manager::ineq_type::EQ;
                     switch (k) {
                     case atom::EQ: t = polynomial::manager::ineq_type::EQ; break;
                     case atom::LT: t = polynomial::manager::ineq_type::LT; break;
@@ -2835,7 +2835,7 @@ namespace nlsat {
         struct degree_lit_num_lt {
             unsigned_vector & m_degrees;
             unsigned_vector & m_lit_num;
-            degree_lit_num_lt(unsigned_vector & ds, unsigned_vector ln) :
+            degree_lit_num_lt(unsigned_vector & ds, unsigned_vector & ln) :
             m_degrees(ds),
             m_lit_num(ln) {
             }
