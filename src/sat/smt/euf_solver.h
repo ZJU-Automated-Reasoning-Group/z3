@@ -189,6 +189,8 @@ namespace euf {
         euf::enode* mk_true();
         euf::enode* mk_false();
 
+        vector<std::pair<expr_ref, expr_ref>> m_initial_values;
+
         // replay
         typedef std::tuple<expr_ref, unsigned, sat::bool_var> reinit_t;
         vector<reinit_t>    m_reinit;
@@ -563,6 +565,8 @@ namespace euf {
             check_for_user_propagator();
             m_user_propagator->add_expr(e);
         }
+
+        void user_propagate_initialize_value(expr* var, expr* value);
 
         // solver factory
         ::solver* mk_solver() { return m_mk_solver(); }

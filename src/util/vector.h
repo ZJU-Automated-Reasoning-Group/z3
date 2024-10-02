@@ -311,9 +311,6 @@ public:
             return *this;
         }
 
-        bool operator==(reverse_iterator const& other) const {
-            return other.v == v;
-        }
         bool operator!=(reverse_iterator const& other) const {
             return other.v != v;
         }
@@ -883,9 +880,6 @@ public:
             return *this;
         }
 
-        bool operator==(reverse_iterator const& other) const {
-            return other.v == v;
-        }
         bool operator!=(reverse_iterator const& other) const {
             return other.v != v;
         }
@@ -1170,7 +1164,7 @@ public:
 template<typename T>
 class ptr_vector : public vector<T *, false> {
 public:
-    ptr_vector():vector<T *, false>() {}
+    ptr_vector() = default;
     ptr_vector(unsigned s):vector<T *, false>(s) {}
     ptr_vector(unsigned s, T * elem):vector<T *, false>(s, elem) {}
     ptr_vector(unsigned s, T * const * data):vector<T *, false>(s, const_cast<T**>(data)) {}
@@ -1190,7 +1184,7 @@ public:
 template<typename T, typename SZ = unsigned>
 class svector : public vector<T, false, SZ> {
 public:
-    svector():vector<T, false, SZ>() {}
+    svector() = default;
     svector(SZ s):vector<T, false, SZ>(s) {}
     svector(SZ s, T const & elem):vector<T, false, SZ>(s, elem) {}
     svector(SZ s, T const * data):vector<T, false, SZ>(s, data) {}

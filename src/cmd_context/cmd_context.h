@@ -47,7 +47,7 @@ class func_decls {
     bool signatures_collide(func_decl* f, func_decl* g) const;
     bool signatures_collide(unsigned n, sort*const* domain, sort* range, func_decl* g) const;
 public:
-    func_decls() {}
+    func_decls() = default;
     func_decls(ast_manager & m, func_decl * f);
     void finalize(ast_manager & m);
     bool contains(func_decl * f) const;
@@ -173,6 +173,8 @@ public:
     virtual void set_logic(symbol const& s) = 0;
     virtual void get_box_model(model_ref& mdl, unsigned index) = 0;
     virtual void updt_params(params_ref const& p) = 0;
+    virtual void initialize_value(expr* var, expr* value) = 0;
+
 };
 
 class ast_context_params : public context_params { 
@@ -260,6 +262,7 @@ protected:
     scoped_ptr_vector<builtin_decl> m_extra_builtin_decls; // make sure that dynamically allocated builtin_decls are deleted
     dictionary<object_ref*>      m_object_refs; // anything that can be named.
     dictionary<sexpr*>           m_user_tactic_decls;
+    vector<std::pair<expr_ref, expr_ref>> m_var2values;
 
     dictionary<func_decls>       m_func_decls;
     obj_map<func_decl, symbol>   m_func_decl2alias;
@@ -419,6 +422,7 @@ public:
     solver* get_solver() { return m_solver.get(); }
     void set_solver(solver* s) { m_solver = s; }
     void set_proof_cmds(proof_cmds* pc) { m_proof_cmds = pc; }
+    void set_initial_value(expr* var, expr* value);
 
     void set_solver_factory(solver_factory * s);
     void set_check_sat_result(check_sat_result * r) { m_check_sat_result = r; }
